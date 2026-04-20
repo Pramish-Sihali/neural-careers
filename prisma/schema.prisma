@@ -1,0 +1,472 @@
+// =============================================================================
+// Neural AI — Candidate Onboarding System
+// Prisma Schema v1.0
+//
+// Stack: Next.js 15 · Supabase (PostgreSQL) · Prisma ORM
+//
+// PRISMA VERSION: This schema targets Prisma 5.x. Pin in package.json:
+//   "prisma": "^5.22.0", "@prisma/client": "^5.22.0"
+// Prisma 7+ moved url/directUrl to prisma.config.ts — do NOT upgrade without migration.
+//
+// CONNECTION NOTES:
+//   DATABASE_URL  → pooled via PgBouncer (port 6543) — used for all runtime
+//                   queries. Required for Supabase connection pooling.
+//   DIRECT_URL    → direct TCP connection (port 5432) — used only by Prisma
+//                   Migrate / db push / introspect. PgBouncer does not support
+//                   the DDL transactions that migrations require.
+// =============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// =============================================================================
+// ENUMS
+// =============================================================================
+
+// Tracks the full lifecycle of a candidate's application through every phase.
+// Transitions are one-way (no going back from OFFER_SIGNED to INTERVIEWING, etc.)
+// and are enforced at the application layer, not via DB constraints.
+enum ApplicationStatus {
+  APPLIED          // Submitted, awaiting AI screening
+  SCREENED         // AI has scored the resume; no human decision yet
+  SHORTLISTED      // Recruiter approved; enrichment + slot offering begins
+  INTERVIEWING     // Slot confirmed; interview scheduled
+  POST_INTERVIEW   // Interview completed; awaiting scorecard review
+  OFFER_SENT       // Offer letter emailed to candidate
+  OFFER_SIGNED     // Candidate e-signed
+  ONBOARDED        // Slack invite sent and candidate joined
+  REJECTED         // Not moving forward at any stage
+  WITHDRAWN        // Candidate withdrew voluntarily
+}
+
+// Tracks calendar slot lifecycle. HELD → CONFIRMED is the happy path.
+// RELEASED and EXPIRED are terminal states that free the slot for reuse.
+enum SlotStatus {
+  HELD       // Tentative hold placed on interviewer's calendar (Google event created)
+  CONFIRMED  // Candidate selected this slot; interview record created
+  RELEASED   // Explicitly released (candidate chose a different slot or withdrew)
+  EXPIRED    // holdExpiresAt passed without candidate selection — background job sets this
+}
+
+// Offer letter lifecycle. DRAFT is the working state; SENT freezes letterHtml.
+enum OfferStatus {
+  DRAFT    // Being composed — letterHtml may still change
+  SENT     // Emailed to candidate — letterHtml is frozen (hash recorded at send time)
+  SIGNED   // Candidate e-signed via /offer/sign route
+  DECLINED // Candidate explicitly declined
+  EXPIRED  // Signing deadline (typically 5 business days) passed
+  VOIDED   // Admin manually voided (e.g., role cancelled after send)
+}
+
+// Interview session lifecycle.
+enum InterviewStatus {
+  SCHEDULED    // Confirmed slot; Fireflies not yet joined
+  IN_PROGRESS  // Fireflies bot is live in the meeting
+  COMPLETED    // Meeting ended; transcript fetch pending or done
+  NO_SHOW      // Candidate did not join within the grace period
+  CANCELLED    // Cancelled before the meeting started
+}
+
+// Immutable set of event types for the audit log. Adding new events = new migration.
+// Keeping as an enum (vs free-text String) ensures EventsLog is queryable/filterable
+// without typo risk and integrates with Prisma's type system for switch exhaustiveness.
+enum EventType {
+  APPLICATION_SUBMITTED
+  APPLICATION_SCREENED
+  CANDIDATE_SHORTLISTED
+  CANDIDATE_REJECTED
+  SLOTS_OFFERED       // N hold slots presented to candidate via email link
+  SLOT_CONFIRMED      // Candidate selected one slot
+  INTERVIEW_COMPLETED
+  OFFER_GENERATED     // AI assembled the offer letter draft
+  OFFER_SENT
+  OFFER_SIGNED
+  SLACK_INVITED       // Invite email dispatched via Slack API
+  SLACK_JOINED        // Webhook confirmed user joined workspace
+  NUDGE_SENT          // Reminder email sent (slot selection or offer response)
+}
+
+// =============================================================================
+// MODELS
+// =============================================================================
+
+// -----------------------------------------------------------------------------
+// Job
+// Seeded manually / via admin UI. Applications reference a job.
+// No soft-delete: set isActive = false to hide from career portal without
+// orphaning existing applications.
+// -----------------------------------------------------------------------------
+model Job {
+  id               String   @id @default(cuid())
+  title            String
+  team             String
+  location         String
+  remote           Boolean  @default(false)
+  experienceLevel  String   // e.g. "Junior", "Senior", "Staff" — free text for flexibility
+  description      String   @db.Text
+  responsibilities String   @db.Text
+  requirements     String   @db.Text
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  applications Application[]
+
+  @@map("jobs")
+}
+
+// -----------------------------------------------------------------------------
+// Application
+// Central entity. One row per (candidateEmail, jobId) pair — enforced by unique
+// constraint to prevent double-applying via different browser sessions.
+//
+// resumeText is denormalized here (not a separate table) because:
+//   1. It is always fetched together with the application for AI screening.
+//   2. It is write-once (parsed at upload, never mutated).
+//   3. A join would add latency to every screening LLM call with no benefit.
+//
+// version (optimistic locking): the AI screening route reads version N, does the
+// LLM call (slow), then issues:
+//   UPDATE applications SET status=..., fitScore=..., version=N+1
+//   WHERE id=? AND version=N
+// If 0 rows updated, another process already screened this row → discard.
+//
+// screenedAt / shortlistedAt are nullable timestamps for time-series analytics
+// (e.g. "average hours from APPLIED to SHORTLISTED").
+// -----------------------------------------------------------------------------
+model Application {
+  id               String            @id @default(cuid())
+  jobId            String
+  candidateName    String
+  candidateEmail   String
+  linkedinUrl      String?
+  githubUrl        String?
+  resumeUrl        String            // Supabase Storage object path, e.g. "resumes/<id>.pdf"
+  resumeText       String            @db.Text // Parsed text extracted at upload time
+  status           ApplicationStatus @default(APPLIED)
+  fitScore         Int?              // 0–100; null until AI screening completes
+  // Structured AI output: { strengths: string[], gaps: string[], rationale: string, recommendation: "SHORTLIST"|"REJECT" }
+  screeningSummary Json?
+  // Optimistic lock counter — incremented on every status-changing write
+  version          Int               @default(0)
+  screenedAt       DateTime?
+  shortlistedAt    DateTime?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  job              Job               @relation(fields: [jobId], references: [id])
+  enrichment       CandidateEnrichment?
+  interviewSlots   InterviewSlot[]
+  interview        Interview?
+  offer            Offer?
+  slackOnboarding  SlackOnboarding?
+  eventsLog        EventsLog[]
+  scheduledNudges  ScheduledNudge[]
+
+  // One application per email per job — prevents duplicate submissions
+  @@unique([candidateEmail, jobId])
+  // Dashboard queries filter by status heavily ("show me all SHORTLISTED")
+  @@index([status])
+  // Recruiter views all applications for a specific job posting
+  @@index([jobId])
+  // Leaderboard / ranking view sorts by fitScore DESC
+  @@index([fitScore])
+  @@map("applications")
+}
+
+// -----------------------------------------------------------------------------
+// CandidateEnrichment
+// Created only for SHORTLISTED candidates. Populated by an async enrichment job
+// that calls LinkedIn (via RapidAPI), GitHub API, and Twitter/X API.
+//
+// discrepancies is a Json array — example element:
+//   { "field": "currentRole", "resumeValue": "Engineer", "onlineValue": "Manager" }
+// Stored as Json (not a child table) because the schema varies per field and this
+// data is always read/written as a single unit in the brief generation prompt.
+// -----------------------------------------------------------------------------
+model CandidateEnrichment {
+  id               String   @id @default(cuid())
+  applicationId    String   @unique
+  linkedinUrl      String?
+  linkedinSummary  String?  @db.Text
+  githubUsername   String?
+  // { topLanguages: string[], topRepos: {name,stars,description}[], followers: number, bio: string }
+  githubDigest     Json?
+  twitterSummary   String?  @db.Text
+  // 3–5 sentence AI-synthesized brief combining resume + online presence
+  candidateBrief   String   @db.Text
+  // Array of discrepancy objects — see comment above
+  discrepancies    Json     @default("[]")
+  enrichedAt       DateTime
+
+  application      Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@map("candidate_enrichments")
+}
+
+// -----------------------------------------------------------------------------
+// InterviewSlot
+// Represents a single calendar window. Slots are created in HELD status (Google
+// Calendar hold event created). Multiple slots can be HELD for one application
+// simultaneously — the candidate is emailed a link to pick one.
+//
+// InterviewSlot vs Interview separation rationale:
+//   A slot is a calendar reservation with a TTL. It may never become an interview
+//   (candidate doesn't pick it, or it expires). Interview is a confirmed session
+//   with Fireflies metadata, transcript, and scorecard. Merging them would require
+//   nullable columns for all interview data on every slot row (including the ~80%
+//   that expire unused), and would conflate two conceptually different entities.
+//
+// CRITICAL — Partial Unique Index (slot conflict prevention):
+//   Prisma does not support partial unique indexes natively. The @@unique directive
+//   below is intentionally OMITTED for (interviewerEmail, startTime) because it
+//   would incorrectly block multiple RELEASED/EXPIRED rows for the same time window.
+//
+//   Instead, apply this index via a raw SQL migration AFTER `prisma migrate dev`
+//   generates the initial table DDL:
+//
+//     CREATE UNIQUE INDEX interview_slots_no_double_book
+//     ON interview_slots (interviewer_email, start_time)
+//     WHERE status = 'CONFIRMED';
+//
+//   This ensures no two CONFIRMED slots share an interviewer + start time, while
+//   allowing unlimited HELD / RELEASED / EXPIRED rows for the same window.
+//   Add this SQL to: prisma/migrations/<timestamp>_add_slot_partial_unique/migration.sql
+//
+// holdExpiresAt is indexed for the background job that runs every 15 minutes:
+//   UPDATE interview_slots SET status = 'EXPIRED'
+//   WHERE status = 'HELD' AND hold_expires_at < NOW()
+// -----------------------------------------------------------------------------
+model InterviewSlot {
+  id               String     @id @default(cuid())
+  applicationId    String
+  interviewerEmail String
+  startTime        DateTime
+  endTime          DateTime
+  status           SlotStatus @default(HELD)
+  // Google Calendar event ID — created on HELD, updated to confirmed on CONFIRMED,
+  // deleted on RELEASED/EXPIRED
+  googleEventId    String?
+  // 24-hour TTL from creation — if candidate has not selected by this time, slot expires
+  holdExpiresAt    DateTime
+  confirmedAt      DateTime?
+  releasedAt       DateTime?
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+
+  application      Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  interview        Interview?
+
+  @@index([applicationId])
+  // Background expiry job queries: WHERE status = 'HELD' AND hold_expires_at < NOW()
+  @@index([status])
+  @@index([holdExpiresAt])
+  @@map("interview_slots")
+}
+
+// -----------------------------------------------------------------------------
+// Interview
+// Created exactly once when a candidate confirms a slot. Holds all post-meeting
+// data: Fireflies meeting reference, raw + processed transcript, AI scorecard.
+//
+// applicationId is unique — enforces one active interview per application. If a
+// candidate no-shows and reschedules, the existing Interview row is updated
+// (status → NO_SHOW, new slot reassigned) rather than creating a second row.
+//
+// aiScorecard is an "extra initiative" field — structure:
+//   { technicalScore: number, communicationScore: number, cultureFitScore: number,
+//     strengths: string[], redFlags: string[], recommendation: "ADVANCE"|"REJECT"|"HOLD" }
+// -----------------------------------------------------------------------------
+model Interview {
+  id                   String          @id @default(cuid())
+  applicationId        String          @unique
+  slotId               String          @unique
+  // Fireflies.ai meeting UUID — used to poll for transcript availability
+  firefliesMeetingId   String?
+  // Raw Fireflies API response stored for reprocessing without re-fetching
+  transcriptRaw        Json?
+  transcriptText       String?         @db.Text // Plain text, newline-separated by speaker
+  transcriptSummary    String?         @db.Text // AI-generated 3–5 sentence meeting summary
+  aiScorecard          Json?           // See structure in comment above
+  status               InterviewStatus @default(SCHEDULED)
+  scheduledAt          DateTime
+  completedAt          DateTime?
+  transcriptFetchedAt  DateTime?
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
+
+  application          Application     @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  slot                 InterviewSlot   @relation(fields: [slotId], references: [id])
+
+  @@map("interviews")
+}
+
+// -----------------------------------------------------------------------------
+// Offer
+// One offer per application. baseSalary is stored as Int in cents (e.g., $120,000
+// = 12_000_000) rather than Decimal or Float because:
+//   - PostgreSQL FLOAT has binary representation issues for currency arithmetic.
+//   - Prisma maps Decimal to a JS string, making arithmetic awkward in application code.
+//   - Integer cents is the industry standard (Stripe, etc.) — arithmetic is exact,
+//     display formatting is a presentation concern (divide by 100 in the UI layer).
+//
+// letterHtml is frozen at send time (status transitions DRAFT → SENT). After that,
+// letterHash (SHA-256 of letterHtml) serves as a tamper-evidence check: the signature
+// verification endpoint recomputes the hash from the stored HTML and compares it to
+// letterHash before accepting an e-signature.
+// -----------------------------------------------------------------------------
+model Offer {
+  id                     String      @id @default(cuid())
+  applicationId          String      @unique
+  jobTitle               String
+  startDate              DateTime
+  // Stored in cents to avoid floating-point precision issues (see comment above)
+  baseSalary             Int
+  compensationStructure  String      // e.g. "Annual", "Monthly contractor", "Hourly"
+  equity                 String?     // e.g. "0.25% over 4 years with 1-year cliff"
+  bonus                  String?     // e.g. "Up to 15% annual performance bonus"
+  reportingManager       String
+  customTerms            String?     @db.Text // Any bespoke clause added by recruiter
+  // Frozen HTML of the offer letter — set at SENT transition, never mutated after
+  letterHtml             String      @db.Text
+  // SHA-256 hex digest of letterHtml — computed at SENT time, verified before e-sign
+  letterHash             String
+  status                 OfferStatus @default(DRAFT)
+  sentAt                 DateTime?
+  signedAt               DateTime?
+  declinedAt             DateTime?
+  createdAt              DateTime    @default(now())
+  updatedAt              DateTime    @updatedAt
+
+  application            Application    @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  signature              OfferSignature?
+
+  @@map("offers")
+}
+
+// -----------------------------------------------------------------------------
+// OfferSignature
+// Immutable record created at signing time. signatureHash is computed as:
+//   SHA-256( signatureBase64 + candidateId + signedAt.toISOString() )
+// This binds the visual signature to the specific person and timestamp, providing
+// non-repudiation evidence without requiring a third-party e-sign service.
+// ipAddress + userAgent provide additional forensic context.
+// -----------------------------------------------------------------------------
+model OfferSignature {
+  id               String   @id @default(cuid())
+  offerId          String   @unique
+  // candidateId = Application.candidateEmail at time of signing (denormalized for immutability)
+  candidateId      String
+  signatureBase64  String   @db.Text // SVG or PNG canvas export, base64-encoded
+  ipAddress        String
+  userAgent        String
+  signedAt         DateTime
+  // SHA-256( base64 + candidateId + signedAt.toISOString() ) — tamper evidence
+  signatureHash    String
+  createdAt        DateTime @default(now())
+
+  offer            Offer    @relation(fields: [offerId], references: [id], onDelete: Cascade)
+
+  @@map("offer_signatures")
+}
+
+// -----------------------------------------------------------------------------
+// SlackOnboarding
+// Tracks the two-step Slack flow: invite dispatched → user joined.
+// slackUserId is populated via the Slack `team_join` event webhook, which fires
+// when the invited user accepts the invitation and sets up their profile.
+// hrNotifiedAt records when the internal HR channel was messaged with the new hire
+// details (Day 1 schedule, equipment checklist link, buddy assignment).
+// -----------------------------------------------------------------------------
+model SlackOnboarding {
+  id                  String    @id @default(cuid())
+  applicationId       String    @unique
+  inviteEmailSentAt   DateTime?
+  slackUserId         String?   // Slack member ID, e.g. "U012AB3CD"
+  joinedAt            DateTime?
+  welcomeDmSentAt     DateTime? // DM sent to new hire in Slack
+  hrNotifiedAt        DateTime? // #hr-alerts channel message sent
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  application         Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@map("slack_onboardings")
+}
+
+// -----------------------------------------------------------------------------
+// EventsLog
+// Append-only audit log. Every state transition, external API call, and scheduled
+// nudge writes a row here.
+//
+// idempotencyKey (unique) serves dual purpose:
+//   1. Webhook deduplication: Fireflies, Slack, Google Calendar all retry on
+//      network errors. The handler computes a deterministic key (e.g.
+//      "fireflies:<meetingId>:transcript_ready") and attempts INSERT. If the unique
+//      constraint fires, the webhook is a duplicate — handler returns 200 and exits.
+//   2. Background job safety: expiry/nudge jobs use keys like
+//      "nudge:SLOT_SELECTION_48H:<applicationId>:<scheduledFor>" to ensure a nudge
+//      is logged exactly once even if the job runs twice due to at-least-once delivery.
+//
+// applicationId is optional to allow system-level events (e.g. bulk expiry runs)
+// that are not tied to a single application.
+// -----------------------------------------------------------------------------
+model EventsLog {
+  id               String    @id @default(cuid())
+  applicationId    String?
+  eventType        EventType
+  // Contextual payload — structure varies by eventType. Examples:
+  //   APPLICATION_SCREENED: { fitScore: 82, recommendation: "SHORTLIST" }
+  //   OFFER_SENT: { offerId: "...", recipientEmail: "..." }
+  //   NUDGE_SENT: { nudgeType: "OFFER_RESPONSE_48H", channel: "email" }
+  payload          Json
+  // Deterministic key for deduplication — format: "<source>:<entity>:<event>"
+  idempotencyKey   String    @unique
+  createdAt        DateTime  @default(now())
+
+  application      Application? @relation(fields: [applicationId], references: [id], onDelete: SetNull)
+
+  // applicationId queries: "show me all events for candidate X"
+  @@index([applicationId])
+  // eventType queries: "show me all OFFER_SIGNED events this quarter"
+  @@index([eventType])
+  // Time-range queries: dashboard activity feed, compliance exports
+  @@index([createdAt])
+  @@map("events_log")
+}
+
+// -----------------------------------------------------------------------------
+// ScheduledNudge
+// Prevents sending duplicate reminder emails. Before enqueueing a nudge job,
+// the system does an upsert on (applicationId, nudgeType). If the row already
+// exists with a sentAt value, the nudge is skipped.
+//
+// nudgeType values (free-text String, not enum, for extensibility without migrations):
+//   "SLOT_SELECTION_48H"  — 48 hours after slots offered, candidate hasn't picked
+//   "OFFER_RESPONSE_48H"  — 48 hours after offer sent, candidate hasn't signed/declined
+//
+// The @@unique constraint is the correctness guarantee — even if the scheduler
+// fires twice, only one row per (applicationId, nudgeType) can exist.
+// -----------------------------------------------------------------------------
+model ScheduledNudge {
+  id            String    @id @default(cuid())
+  applicationId String
+  // "SLOT_SELECTION_48H" | "OFFER_RESPONSE_48H" — extensible without schema migration
+  nudgeType     String
+  scheduledFor  DateTime
+  sentAt        DateTime?
+  createdAt     DateTime  @default(now())
+
+  application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  // One nudge of each type per application — prevents double-scheduling
+  @@unique([applicationId, nudgeType])
+  @@map("scheduled_nudges")
+}
