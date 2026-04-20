@@ -11,13 +11,15 @@ interface JobMeta {
 }
 
 async function getJobMeta(id: string): Promise<JobMeta | null> {
-  const res = await fetch(
-    `${process.env.NEXT_PUBLIC_APP_URL}/api/jobs/${id}`,
-    { next: { revalidate: 60 } },
-  );
-  if (res.status === 404) return null;
-  if (!res.ok) return null;
-  return res.json() as Promise<JobMeta>;
+  const { getJobById } = await import("@/lib/repositories/jobRepo");
+  const job = await getJobById(id);
+  if (!job) return null;
+  return {
+    id: job.id,
+    title: job.title,
+    department: job.team,
+    status: job.isActive ? "OPEN" : "CLOSED",
+  };
 }
 
 interface PageProps {

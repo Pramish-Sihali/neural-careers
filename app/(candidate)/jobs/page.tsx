@@ -1,28 +1,12 @@
 import { Suspense } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { JobCard } from "@/components/candidate/JobCard";
+import { listActiveJobs } from "@/lib/repositories/jobRepo";
+import { toJobSummary } from "@/lib/utils/jobTransform";
 
-interface JobSummary {
-  id: string;
-  title: string;
-  department: string;
-  location: string;
-  employmentType: "FULL_TIME" | "PART_TIME" | "CONTRACT" | "INTERNSHIP";
-  salaryMin: number | null;
-  salaryMax: number | null;
-  salaryCurrency: string | null;
-  publishedAt: string;
-  closingDate: string | null;
-  slug: string;
-}
-
-async function getJobs(): Promise<JobSummary[]> {
-  const res = await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/jobs`, {
-    next: { revalidate: 60 },
-  });
-  if (!res.ok) return [];
-  const data = (await res.json()) as { jobs: JobSummary[] };
-  return data.jobs;
+async function getJobs() {
+  const jobs = await listActiveJobs();
+  return jobs.map(toJobSummary);
 }
 
 function JobCardSkeleton() {

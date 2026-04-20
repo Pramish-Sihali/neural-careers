@@ -30,13 +30,11 @@ const EMPLOYMENT_TYPE_LABELS: Record<JobDetail["employmentType"], string> = {
 };
 
 async function getJob(id: string): Promise<JobDetail | null> {
-  const res = await fetch(
-    `${process.env.NEXT_PUBLIC_APP_URL}/api/jobs/${id}`,
-    { next: { revalidate: 300 } },
-  );
-  if (res.status === 404) return null;
-  if (!res.ok) return null;
-  return res.json() as Promise<JobDetail>;
+  const { getJobById } = await import("@/lib/repositories/jobRepo");
+  const { toJobDetail } = await import("@/lib/utils/jobTransform");
+  const job = await getJobById(id);
+  if (!job) return null;
+  return toJobDetail(job) as JobDetail;
 }
 
 function formatSalary(
