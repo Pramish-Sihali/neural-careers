@@ -44,10 +44,9 @@ export async function parseResumeBuffer(
   let text: string;
 
   if (mime === "application/pdf") {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const pdfParse = require("pdf-parse") as (buf: Buffer) => Promise<{ text: string }>;
-    const result = await pdfParse(buffer);
-    text = result.text;
+    const { extractText } = await import("unpdf");
+    const { text: extracted } = await extractText(new Uint8Array(buffer), { mergePages: true });
+    text = extracted;
   } else {
     const mammoth = await import("mammoth");
     const result = await mammoth.extractRawText({ buffer });
