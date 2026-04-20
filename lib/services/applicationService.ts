@@ -58,18 +58,21 @@ export async function submitApplication(
     resumeText,
   });
 
-  const resumeUrl = await uploadResume(
-    input.resumeBuffer,
-    application.id,
-    input.resumeMimeType
-  );
-
-  // Update with real storage path
-  const { prisma } = await import("@/lib/prisma");
-  const updated = await prisma.application.update({
-    where: { id: application.id },
-    data: { resumeUrl },
-  });
+  // Storage upload is non-fatal — app is already saved, resumeUrl updates async
+  try {
+    const resumeUrl = await uploadResume(
+      input.resumeBuffer,
+      application.id,
+      input.resumeMimeType
+    );
+    const { prisma } = await import("@/lib/prisma");
+    await prisma.application.update({
+      where: { id: application.id },
+      data: { resumeUrl },
+    });
+  } catch (err) {
+    console.error("Resume storage upload failed (non-fatal):", err);
+  }
 
   await sendConfirmationEmail(
     input.candidateEmail,
@@ -78,7 +81,7 @@ export async function submitApplication(
     application.id
   );
 
-  return updated;
+  return application;
 }
 
 async function sendConfirmationEmail(

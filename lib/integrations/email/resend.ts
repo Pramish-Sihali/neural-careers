@@ -11,9 +11,13 @@ export class ResendEmailService implements IEmailService {
   }
 
   async send(options: SendEmailOptions): Promise<{ id: string }> {
+    // Resend sandbox: can only send to verified address — override recipient in dev
+    const sandboxTo = process.env.RESEND_SANDBOX_TO;
+    const recipient = sandboxTo ?? options.to;
+
     const { data, error } = await this.client.emails.send({
       from: options.from ?? this.defaultFrom,
-      to: options.to,
+      to: recipient,
       subject: options.subject,
       html: options.html,
     });
