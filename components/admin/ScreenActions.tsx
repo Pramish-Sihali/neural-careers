@@ -71,6 +71,17 @@ export function ScreenActions({ applicationId, currentStatus }: Props) {
             </button>
           </>
         )}
+        {currentStatus === "SHORTLISTED" && (
+          <button
+            onClick={() => callAction(`/api/admin/applications/${applicationId}/offer-slots`, "POST")}
+            disabled={loading !== null}
+            className="rounded-md bg-green-600 px-3 py-1.5 text-sm text-white hover:bg-green-700 disabled:opacity-50"
+          >
+            {loading === `/api/admin/applications/${applicationId}/offer-slots`
+              ? "Sending…"
+              : "Offer Interview Slots"}
+          </button>
+        )}
       </div>
       {error && <p className="text-xs text-red-500">{error}</p>}
     </div>
