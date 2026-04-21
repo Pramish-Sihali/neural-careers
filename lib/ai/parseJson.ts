@@ -23,7 +23,7 @@ export async function callGeminiWithJson<T>(
   schema: ZodSchema<T>,
   options: CallOptions = {}
 ): Promise<T> {
-  const { modelId = "gemini-2.0-flash", maxRetries = 2, temperature = 0.2 } = options;
+  const { modelId = "gemini-2.5-flash", maxRetries = 4, temperature = 0.2 } = options;
 
   const model = getModel(modelId);
   const generationConfig = {
@@ -63,11 +63,12 @@ export async function callGeminiWithJson<T>(
         `Schema validation failed: ${JSON.stringify(validated.error.issues)}`
       );
     } catch (err) {
-      // Exponential backoff on rate limit
-      if (err instanceof Error && err.message.includes("429") && attempt < maxRetries) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+      const isRetryable =
+        lastError.message.includes("429") || lastError.message.includes("503");
+      if (isRetryable && attempt < maxRetries) {
         await new Promise((r) => setTimeout(r, 1000 * 2 ** attempt));
       }
-      lastError = err instanceof Error ? err : new Error(String(err));
     }
   }
 
