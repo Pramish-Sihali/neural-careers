@@ -47,3 +47,6 @@ playwright-report/
 
 # claude code
 .claude/
+
+# local dev scripts — never commit
+/scripts/
