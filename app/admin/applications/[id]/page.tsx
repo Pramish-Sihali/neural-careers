@@ -5,11 +5,12 @@ import { prisma } from "@/lib/prisma";
 import { createClient } from "@supabase/supabase-js";
 import { StatusBadge } from "@/components/admin/StatusBadge";
 import { ScreenActions } from "@/components/admin/ScreenActions";
+import { SimulateInterviewButton } from "@/components/admin/SimulateInterviewButton";
 
 async function getApplication(id: string) {
   return prisma.application.findUnique({
     where: { id },
-    include: { job: true, enrichment: true },
+    include: { job: true, enrichment: true, interview: true },
   });
 }
 
@@ -134,6 +135,103 @@ export default async function AdminApplicationDetailPage({
                 </pre>
               </div>
             )}
+          </section>
+        )}
+
+        {/* Interview Transcript */}
+        {app.interview && (
+          <section className="rounded-lg border p-6 space-y-4">
+            <h2 className="font-semibold">Interview</h2>
+
+            {app.interview.status === "SCHEDULED" && (
+              <SimulateInterviewButton applicationId={app.id} />
+            )}
+
+            {app.interview.status === "COMPLETED" && !app.interview.transcriptText && (
+              <p className="text-sm text-muted-foreground">Transcript unavailable.</p>
+            )}
+
+            {app.interview.transcriptText && (() => {
+              const raw = app.interview!.transcriptRaw as {
+                summary?: { action_items?: string[]; keywords?: string[] };
+              } | null;
+
+              return (
+                <div className="space-y-4">
+                  {/* Summary */}
+                  {app.interview!.transcriptSummary && (
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">
+                        Summary
+                      </p>
+                      <p className="text-sm text-muted-foreground">
+                        {app.interview!.transcriptSummary}
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Action items */}
+                  {(raw?.summary?.action_items ?? []).length > 0 && (
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">
+                        Action Items
+                      </p>
+                      <ul className="space-y-1">
+                        {(raw!.summary!.action_items!).map((item, i) => (
+                          <li key={i} className="text-sm flex gap-2">
+                            <span className="text-muted-foreground">•</span> {item}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {/* Keywords */}
+                  {(raw?.summary?.keywords ?? []).length > 0 && (
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">
+                        Keywords
+                      </p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {(raw!.summary!.keywords!).map((kw, i) => (
+                          <span
+                            key={i}
+                            className="rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium"
+                          >
+                            {kw}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Full transcript */}
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">
+                      Transcript
+                    </p>
+                    {app.interview!.transcriptText ? (
+                      <pre className="text-xs whitespace-pre-wrap text-muted-foreground font-mono bg-muted rounded p-4 max-h-96 overflow-y-auto">
+                        {app.interview!.transcriptText}
+                      </pre>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">No transcript content.</p>
+                    )}
+                  </div>
+
+                  {/* AI Scorecard placeholder */}
+                  <div className="rounded-lg border border-dashed p-4 opacity-50 select-none">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-xs">🔒</span>
+                      <p className="text-xs font-semibold uppercase tracking-wide">
+                        AI Scorecard
+                      </p>
+                    </div>
+                    <p className="text-xs text-muted-foreground">Coming soon — Gemini-powered interview analysis.</p>
+                  </div>
+                </div>
+              );
+            })()}
           </section>
         )}
 
