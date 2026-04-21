@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { getCalendarService } from "@/lib/integrations/calendar";
+import { GoogleCalendarService } from "@/lib/integrations/calendar/GoogleCalendarService";
 import { signScheduleToken } from "@/lib/auth/scheduleToken";
 import { getEmailService } from "@/lib/integrations/email";
 import { renderInterviewInviteEmail } from "@/emails/InterviewInvite";
@@ -160,6 +161,16 @@ export async function confirmInterviewSlot(
     where: { id: slotId },
     data: { status: "CONFIRMED", confirmedAt: now },
   });
+
+  // If using real Google Calendar, confirm the event and send invites
+  let meetLink: string | undefined;
+  if (slot.googleEventId && calendar instanceof GoogleCalendarService) {
+    meetLink = await calendar.confirmEvent(
+      INTERVIEWER_EMAIL,
+      slot.googleEventId,
+      slot.application.candidateName
+    ).catch(() => undefined);
+  }
 
   // Create Interview record
   await prisma.interview.create({

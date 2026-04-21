@@ -473,3 +473,25 @@ model ScheduledNudge {
   @@unique([applicationId, nudgeType])
   @@map("scheduled_nudges")
 }
+
+// -----------------------------------------------------------------------------
+// InterviewerCredentials
+// Stores AES-256-GCM encrypted OAuth2 refresh tokens for each interviewer.
+// Populated once via the /api/auth/google OAuth flow. The access token is
+// refreshed automatically by the googleapis OAuth2Client on every API call.
+//
+// Never store plaintext tokens. encryptedTokens format:
+//   "<iv-hex>.<authTag-hex>.<ciphertext-hex>"
+// Decrypted value is JSON: { access_token?, refresh_token, expiry_date? }
+// -----------------------------------------------------------------------------
+model InterviewerCredentials {
+  id               String   @id @default(cuid())
+  interviewerEmail String   @unique
+  // AES-256-GCM encrypted token JSON — see lib/integrations/calendar/tokenCrypto.ts
+  encryptedTokens  String   @db.Text
+  isConfigured     Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@map("interviewer_credentials")
+}
