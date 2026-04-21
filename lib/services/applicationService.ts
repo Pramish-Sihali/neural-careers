@@ -54,6 +54,9 @@ export async function submitApplication(
     candidateEmail: input.candidateEmail,
     linkedinUrl: input.linkedinUrl,
     githubUrl: input.githubUrl,
+    phone: input.phone,
+    yearsOfExperience: input.yearsOfExperience,
+    coverLetter: input.coverLetter,
     resumeUrl: "pending",
     resumeText,
   });

@@ -1,5 +1,30 @@
 import { createClient } from "@supabase/supabase-js";
 import { fileTypeFromBuffer } from "file-type";
+import { resolve } from "path";
+import { pathToFileURL } from "url";
+
+// Configure unpdf once per process with a Node.js-compatible pdfjs-dist build.
+// The default unpdf/pdfjs bundle is browser-only and crashes in Next.js API routes.
+let _unpdfConfigured: Promise<void> | null = null;
+function ensureUnpdfConfigured(): Promise<void> {
+  if (!_unpdfConfigured) {
+    _unpdfConfigured = (async () => {
+      const { configureUnPDF } = await import("unpdf");
+      await configureUnPDF({
+        pdfjs: async () => {
+          const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs" as string);
+          const workerPath = resolve(
+            process.cwd(),
+            "node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs"
+          );
+          pdfjs.GlobalWorkerOptions.workerSrc = pathToFileURL(workerPath).href;
+          return pdfjs;
+        },
+      });
+    })();
+  }
+  return _unpdfConfigured;
+}
 
 const ALLOWED_MIME_TYPES = new Set([
   "application/pdf",
@@ -44,6 +69,7 @@ export async function parseResumeBuffer(
   let text: string;
 
   if (mime === "application/pdf") {
+    await ensureUnpdfConfigured();
     const { extractText } = await import("unpdf");
     const { text: extracted } = await extractText(new Uint8Array(buffer), { mergePages: true });
     text = extracted;

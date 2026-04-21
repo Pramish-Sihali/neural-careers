@@ -1,7 +1,8 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, FileText, ExternalLink } from "lucide-react";
 import { prisma } from "@/lib/prisma";
+import { createClient } from "@supabase/supabase-js";
 import { StatusBadge } from "@/components/admin/StatusBadge";
 import { ScreenActions } from "@/components/admin/ScreenActions";
 
@@ -12,6 +13,23 @@ async function getApplication(id: string) {
   });
 }
 
+async function getResumeSignedUrl(storagePath: string): Promise<string | null> {
+  if (!storagePath || storagePath === "pending") return null;
+  try {
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    );
+    const { data, error } = await supabase.storage
+      .from("resumes")
+      .createSignedUrl(storagePath, 60 * 30); // 30 min — path is already relative to bucket root
+    if (error || !data) return null;
+    return data.signedUrl;
+  } catch {
+    return null;
+  }
+}
+
 export default async function AdminApplicationDetailPage({
   params,
 }: {
@@ -20,6 +38,8 @@ export default async function AdminApplicationDetailPage({
   const { id } = await params;
   const app = await getApplication(id);
   if (!app) notFound();
+
+  const resumeSignedUrl = await getResumeSignedUrl(app.resumeUrl);
 
   const screening = app.screeningSummary as {
     strengths?: string[];
@@ -41,7 +61,13 @@ export default async function AdminApplicationDetailPage({
         <div>
           <h1 className="text-2xl font-bold">{app.candidateName}</h1>
           <p className="text-sm text-muted-foreground mt-1">{app.candidateEmail}</p>
+          {app.phone && (
+            <p className="text-sm text-muted-foreground">{app.phone}</p>
+          )}
           <p className="text-sm text-muted-foreground">{app.job.title}</p>
+          {app.yearsOfExperience != null && (
+            <p className="text-sm text-muted-foreground">{app.yearsOfExperience} yrs experience</p>
+          )}
         </div>
         <div className="flex flex-col items-end gap-3">
           <StatusBadge status={app.status} />
@@ -54,6 +80,14 @@ export default async function AdminApplicationDetailPage({
       <div className="space-y-6">
         {/* AI Screening Actions */}
         <ScreenActions applicationId={app.id} currentStatus={app.status} />
+
+        {/* Cover letter */}
+        {app.coverLetter && (
+          <section className="rounded-lg border p-6">
+            <h2 className="font-semibold mb-3">Cover Letter</h2>
+            <p className="text-sm whitespace-pre-wrap text-muted-foreground">{app.coverLetter}</p>
+          </section>
+        )}
 
         {/* Screening Result */}
         {screening && (
@@ -103,9 +137,40 @@ export default async function AdminApplicationDetailPage({
           </section>
         )}
 
+        {/* Resume file */}
+        <section className="rounded-lg border p-6 space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="font-semibold flex items-center gap-2">
+              <FileText className="h-4 w-4" /> Resume File
+            </h2>
+            {resumeSignedUrl ? (
+              <a
+                href={resumeSignedUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline"
+              >
+                Open PDF <ExternalLink className="h-3 w-3" />
+              </a>
+            ) : (
+              <span className="text-xs text-muted-foreground">
+                {app.resumeUrl === "pending" ? "Upload pending" : "File unavailable"}
+              </span>
+            )}
+          </div>
+          {resumeSignedUrl && (
+            <iframe
+              src={resumeSignedUrl}
+              className="w-full rounded border bg-muted"
+              style={{ height: "600px" }}
+              title="Candidate resume"
+            />
+          )}
+        </section>
+
         {/* Resume text */}
         <section className="rounded-lg border p-6">
-          <h2 className="font-semibold mb-3">Resume Text</h2>
+          <h2 className="font-semibold mb-3">Resume Text (parsed)</h2>
           <pre className="text-xs whitespace-pre-wrap text-muted-foreground max-h-96 overflow-y-auto">
             {app.resumeText}
           </pre>

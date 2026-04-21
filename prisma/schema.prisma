@@ -148,6 +148,9 @@ model Application {
   candidateEmail   String
   linkedinUrl      String?
   githubUrl        String?
+  phone            String?
+  yearsOfExperience Int?
+  coverLetter      String?   @db.Text
   resumeUrl        String            // Supabase Storage object path, e.g. "resumes/<id>.pdf"
   resumeText       String            @db.Text // Parsed text extracted at upload time
   status           ApplicationStatus @default(APPLIED)
