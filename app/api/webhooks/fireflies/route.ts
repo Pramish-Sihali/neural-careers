@@ -26,6 +26,9 @@ function isValidSecret(provided: string): boolean {
 }
 
 export async function POST(req: NextRequest) {
+  // Temporary: log all headers to diagnose secret header name
+  console.log("[fireflies webhook] headers:", Object.fromEntries(req.headers.entries()));
+
   const secret = req.headers.get("x-webhook-secret") ?? "";
   if (!isValidSecret(secret)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
