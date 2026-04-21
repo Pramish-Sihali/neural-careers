@@ -6,35 +6,34 @@ import {
   TranscriptAlreadyFetchedError,
 } from "@/lib/services/notetakerService";
 
-/**
- * Timing-safe comparison for webhook secrets.
- * Both values are HMAC-hashed to fixed 32-byte buffers before comparison —
- * this ensures equal-length inputs to timingSafeEqual without leaking length info
- * via padding (a padEnd approach would be cryptographically broken).
- */
-function isValidSecret(provided: string): boolean {
-  const expected = process.env.FIREFLIES_WEBHOOK_SECRET ?? "";
-  const a = crypto
-    .createHmac("sha256", "webhook-compare")
-    .update(provided)
-    .digest();
-  const b = crypto
-    .createHmac("sha256", "webhook-compare")
-    .update(expected)
-    .digest();
-  return crypto.timingSafeEqual(a, b);
+// Fireflies signs the raw request body with HMAC-SHA256 and sends it as
+// x-hub-signature: sha256=<hex> — same format as GitHub webhooks.
+function isValidSignature(rawBody: string, signatureHeader: string): boolean {
+  const secret = process.env.FIREFLIES_WEBHOOK_SECRET ?? "";
+  const computed = `sha256=${crypto
+    .createHmac("sha256", secret)
+    .update(rawBody)
+    .digest("hex")}`;
+  try {
+    return crypto.timingSafeEqual(
+      Buffer.from(computed, "utf8"),
+      Buffer.from(signatureHeader, "utf8")
+    );
+  } catch {
+    // Buffers differ in length — malformed signature header
+    return false;
+  }
 }
 
 export async function POST(req: NextRequest) {
-  // Temporary: log all headers to diagnose secret header name
-  console.log("[fireflies webhook] headers:", Object.fromEntries(req.headers.entries()));
+  const rawBody = await req.text();
+  const signatureHeader = req.headers.get("x-hub-signature") ?? "";
 
-  const secret = req.headers.get("x-webhook-secret") ?? "";
-  if (!isValidSecret(secret)) {
+  if (!isValidSignature(rawBody, signatureHeader)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const body = (await req.json()) as {
+  const body = JSON.parse(rawBody) as {
     event_type?: string;
     meetingId?: string;
   };
