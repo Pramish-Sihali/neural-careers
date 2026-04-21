@@ -114,27 +114,43 @@ export class GoogleCalendarService implements ICalendarService {
     });
   }
 
-  /** Confirm a held event: update title, set confirmed status, send invites. */
+  /** Confirm a held event: update title, set confirmed status, send invites.
+   *  additionalAttendees: extra emails to add (e.g. Fireflies bot). */
   async confirmEvent(
     interviewerEmail: string,
     googleEventId: string,
-    candidateName: string
+    candidateName: string,
+    additionalAttendees: string[] = []
   ): Promise<string | undefined> {
     const auth = await getAuthorizedClient(interviewerEmail);
     const calendar = google.calendar({ version: "v3", auth });
 
+    // GET existing attendees — PATCH replaces the array, does not merge
+    const { data: existing } = await calendar.events.get({
+      calendarId: "primary",
+      eventId: googleEventId,
+    });
+
+    const attendees = [
+      ...(existing.attendees ?? []),
+      ...additionalAttendees.map((email) => ({ email })),
+    ];
+
     const { data } = await calendar.events.patch({
       calendarId: "primary",
       eventId: googleEventId,
-      sendUpdates: "all", // sends calendar invites to both attendees
+      sendUpdates: "all",
       requestBody: {
         summary: `Interview: ${candidateName}`,
         status: "confirmed",
+        attendees,
       },
     });
 
-    return data.conferenceData?.entryPoints?.find(
-      (ep) => ep.entryPointType === "video"
-    )?.uri ?? undefined;
+    return (
+      data.conferenceData?.entryPoints?.find(
+        (ep) => ep.entryPointType === "video"
+      )?.uri ?? undefined
+    );
   }
 }

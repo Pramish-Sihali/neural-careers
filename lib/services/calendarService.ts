@@ -193,11 +193,20 @@ export async function confirmInterviewSlot(
   // If using real Google Calendar, confirm the event and send invites
   let meetLink: string | undefined;
   if (slot.googleEventId && calendar instanceof GoogleCalendarService) {
-    meetLink = await calendar.confirmEvent(
-      interviewerEmail,
-      slot.googleEventId,
-      slot.application.candidateName
-    ).catch(() => undefined);
+    // Add Fireflies bot only when real notetaker is configured
+    const additionalAttendees =
+      process.env.USE_MOCK_NOTETAKER !== "true"
+        ? ["fireflies.ai@fireflies.ai"]
+        : [];
+
+    meetLink = await calendar
+      .confirmEvent(
+        interviewerEmail,
+        slot.googleEventId,
+        slot.application.candidateName,
+        additionalAttendees
+      )
+      .catch(() => undefined);
   }
 
   // Create Interview record
