@@ -6,7 +6,7 @@ export const ScreeningResultSchema = z.object({
   recommendation: z.enum(["SHORTLIST", "REJECT"]),
   strengths: z.array(z.string()).min(1).max(5),
   gaps: z.array(z.string()).max(5),
-  rationale: z.string().min(20).max(500),
+  rationale: z.string().min(20).max(600),
 });
 
 export type ScreeningResult = z.infer<typeof ScreeningResultSchema>;
@@ -21,7 +21,7 @@ Return a JSON object with these fields:
 - recommendation: "SHORTLIST" if fitScore >= 65, otherwise "REJECT"
 - strengths: array of 1-5 specific strengths relevant to this role
 - gaps: array of 0-5 specific gaps or missing requirements
-- rationale: 2-4 sentences explaining the score and recommendation
+- rationale: 2-3 concise sentences (under 600 characters total) explaining the score and recommendation
 
 Be specific and evidence-based. Reference actual content from the resume.`;
 
