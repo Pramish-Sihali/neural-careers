@@ -1,10 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
-import { requireAdmin } from "@/lib/auth/requireAdmin";
+import { NextResponse } from "next/server";
 import { getAuthUrl } from "@/lib/integrations/calendar/googleOAuth";
 
-export async function GET(req: NextRequest) {
-  const auth = requireAdmin(req);
-  if (!auth.authorized) return auth.response;
-
+// No auth guard — this just redirects to Google's consent screen.
+// The callback is where tokens are saved; that endpoint is scoped to localhost only.
+export async function GET() {
   return NextResponse.redirect(getAuthUrl());
 }
