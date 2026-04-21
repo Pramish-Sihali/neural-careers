@@ -11,8 +11,25 @@ export async function POST(
 
   const { id } = await params;
 
+  // Parse optional explicit slots from body
+  let explicitSlots: Array<{ start: Date; end: Date }> | undefined;
   try {
-    await offerInterviewSlots(id);
+    const text = await req.text();
+    if (text) {
+      const body = JSON.parse(text) as { slots?: Array<{ start: string; end: string }> };
+      if (Array.isArray(body.slots) && body.slots.length > 0) {
+        explicitSlots = body.slots.map((s) => ({
+          start: new Date(s.start),
+          end: new Date(s.end),
+        }));
+      }
+    }
+  } catch {
+    // body parse failure is non-fatal — fall back to auto-generate
+  }
+
+  try {
+    await offerInterviewSlots(id, explicitSlots);
     return NextResponse.json({ ok: true });
   } catch (err) {
     if (err instanceof SlotOfferError) {

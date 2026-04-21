@@ -5,7 +5,7 @@ import { signScheduleToken } from "@/lib/auth/scheduleToken";
 import { getEmailService } from "@/lib/integrations/email";
 import { renderInterviewInviteEmail } from "@/emails/InterviewInvite";
 
-async function getInterviewerEmail(): Promise<string> {
+export async function getInterviewerEmail(): Promise<string> {
   // Mock mode: use env var (no DB lookup needed)
   if (process.env.USE_MOCK_CALENDAR === "true") {
     return process.env.INTERVIEWER_EMAIL ?? "interviewer@niural.com";
@@ -28,7 +28,10 @@ const HOLD_TTL_HOURS = 48;
 export class SlotOfferError extends Error {}
 export class SlotConfirmError extends Error {}
 
-export async function offerInterviewSlots(applicationId: string): Promise<void> {
+export async function offerInterviewSlots(
+  applicationId: string,
+  explicitSlots?: Array<{ start: Date; end: Date }>
+): Promise<void> {
   const interviewerEmail = await getInterviewerEmail();
 
   const application = await prisma.application.findUnique({
@@ -59,18 +62,25 @@ export async function offerInterviewSlots(applicationId: string): Promise<void> 
     data: { status: "RELEASED", releasedAt: new Date() },
   });
 
-  // Generate 5 fresh slots starting tomorrow
-  const tomorrow = new Date();
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  tomorrow.setHours(0, 0, 0, 0);
-  const twoWeeksOut = new Date(tomorrow.getTime() + 14 * 24 * 60 * 60 * 1000);
+  let availableSlots: Array<{ start: Date; end: Date }>;
 
-  const availableSlots = await calendar.getAvailableSlots(
-    interviewerEmail,
-    tomorrow,
-    twoWeeksOut,
-    SLOT_DURATION_MINUTES
-  );
+  if (explicitSlots && explicitSlots.length > 0) {
+    // Admin-selected slots — use them directly, skip auto-generation
+    availableSlots = explicitSlots;
+  } else {
+    // Auto-generate 5 fresh slots starting tomorrow
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    tomorrow.setHours(0, 0, 0, 0);
+    const twoWeeksOut = new Date(tomorrow.getTime() + 14 * 24 * 60 * 60 * 1000);
+
+    availableSlots = await calendar.getAvailableSlots(
+      interviewerEmail,
+      tomorrow,
+      twoWeeksOut,
+      SLOT_DURATION_MINUTES
+    );
+  }
 
   if (availableSlots.length === 0) {
     throw new SlotOfferError("No available slots found");
@@ -103,11 +113,11 @@ export async function offerInterviewSlots(applicationId: string): Promise<void> 
     })
   );
 
-  // Sign a schedule JWT for the candidate
+  // Sign a schedule JWT for the candidate (one token covers all slots)
   const token = await signScheduleToken(applicationId);
-  const scheduleUrl = `${process.env.NEXT_PUBLIC_APP_URL}/schedule/${token}`;
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "";
 
-  // Send slot-offer email
+  // Send slot-offer email with per-slot direct confirm URLs
   const html = renderInterviewInviteEmail({
     candidateName: application.candidateName,
     jobTitle: application.job.title,
@@ -115,8 +125,8 @@ export async function offerInterviewSlots(applicationId: string): Promise<void> 
       id: s.id,
       startTime: s.startTime.toISOString(),
       endTime: s.endTime.toISOString(),
+      confirmUrl: `${appUrl}/api/schedule/confirm?token=${token}&slotId=${s.id}`,
     })),
-    scheduleUrl,
   });
 
   await getEmailService().send({

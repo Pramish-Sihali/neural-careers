@@ -79,7 +79,7 @@ export default async function AdminApplicationDetailPage({
 
       <div className="space-y-6">
         {/* AI Screening Actions */}
-        <ScreenActions applicationId={app.id} currentStatus={app.status} />
+        <ScreenActions applicationId={app.id} candidateName={app.candidateName} currentStatus={app.status} />
 
         {/* Cover letter */}
         {app.coverLetter && (
