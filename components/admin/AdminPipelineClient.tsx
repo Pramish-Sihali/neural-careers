@@ -4,7 +4,7 @@ import { useState } from "react";
 import { BatchScanButton } from "./BatchScanButton";
 import { NewApplicationsTable, type NewApplicationRow } from "./NewApplicationsTable";
 import { PipelineTable, type PipelineRow } from "./PipelineTable";
-import { AdminCalendar, type CalendarSlot } from "./AdminCalendar";
+import { InterviewActivityFeed, type ActivitySlot } from "./InterviewActivityFeed";
 import type { ApplicationStatus } from "@prisma/client";
 
 interface ScreenResult {
@@ -15,10 +15,10 @@ interface ScreenResult {
 interface Props {
   initialNewApps: NewApplicationRow[];
   initialPipeline: PipelineRow[];
-  calendarSlots: CalendarSlot[];
+  activitySlots: ActivitySlot[];
 }
 
-export function AdminPipelineClient({ initialNewApps, initialPipeline, calendarSlots }: Props) {
+export function AdminPipelineClient({ initialNewApps, initialPipeline, activitySlots }: Props) {
   const [newApps, setNewApps] = useState(initialNewApps);
   const [pipeline, setPipeline] = useState(initialPipeline);
   const [screeningIds, setScreeningIds] = useState<Set<string>>(new Set());
@@ -103,12 +103,12 @@ export function AdminPipelineClient({ initialNewApps, initialPipeline, calendarS
 
       <section className="space-y-4">
         <div>
-          <h2 className="text-xl font-bold tracking-tight">Interview Schedule</h2>
+          <h2 className="text-xl font-bold tracking-tight">Interview Activity</h2>
           <p className="mt-0.5 text-sm text-muted-foreground">
-            {calendarSlots.length} slot{calendarSlots.length !== 1 ? "s" : ""} across all candidates
+            Slot offers sent and candidate responses
           </p>
         </div>
-        <AdminCalendar slots={calendarSlots} />
+        <InterviewActivityFeed slots={activitySlots} />
       </section>
     </>
   );

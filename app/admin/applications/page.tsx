@@ -2,7 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { AdminPipelineClient } from "@/components/admin/AdminPipelineClient";
 import type { NewApplicationRow } from "@/components/admin/NewApplicationsTable";
 import type { PipelineRow } from "@/components/admin/PipelineTable";
-import type { CalendarSlot } from "@/components/admin/AdminCalendar";
+import type { ActivitySlot } from "@/components/admin/InterviewActivityFeed";
 
 async function getData(searchParams: Record<string, string>) {
   const [applications, slots, calendarCreds] = await Promise.all([
@@ -41,8 +41,9 @@ async function getData(searchParams: Record<string, string>) {
       createdAt: a.createdAt.toISOString(),
     }));
 
-  const calendarSlots: CalendarSlot[] = slots.map((s) => ({
+  const activitySlots: ActivitySlot[] = slots.map((s) => ({
     id: s.id,
+    applicationId: s.applicationId,
     candidateName: s.application.candidateName,
     jobTitle: s.application.job.title,
     startTime: s.startTime.toISOString(),
@@ -53,7 +54,7 @@ async function getData(searchParams: Record<string, string>) {
   const authStatus = searchParams.calendar_auth as string | undefined;
   const calendarConnected = !!calendarCreds;
 
-  return { newApps, pipeline, calendarSlots, calendarConnected, authStatus };
+  return { newApps, pipeline, activitySlots, calendarConnected, authStatus };
 }
 
 interface Props {
@@ -62,7 +63,7 @@ interface Props {
 
 export default async function AdminApplicationsPage({ searchParams }: Props) {
   const sp = await searchParams;
-  const { newApps, pipeline, calendarSlots, calendarConnected, authStatus } =
+  const { newApps, pipeline, activitySlots, calendarConnected, authStatus } =
     await getData(sp);
 
   const useMock = process.env.USE_MOCK_CALENDAR === "true";
@@ -108,7 +109,7 @@ export default async function AdminApplicationsPage({ searchParams }: Props) {
       <AdminPipelineClient
         initialNewApps={newApps}
         initialPipeline={pipeline}
-        calendarSlots={calendarSlots}
+        activitySlots={activitySlots}
       />
     </main>
   );
