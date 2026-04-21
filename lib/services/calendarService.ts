@@ -5,8 +5,22 @@ import { signScheduleToken } from "@/lib/auth/scheduleToken";
 import { getEmailService } from "@/lib/integrations/email";
 import { renderInterviewInviteEmail } from "@/emails/InterviewInvite";
 
-const INTERVIEWER_EMAIL =
-  process.env.INTERVIEWER_EMAIL ?? "interviewer@niural.com";
+async function getInterviewerEmail(): Promise<string> {
+  // Mock mode: use env var (no DB lookup needed)
+  if (process.env.USE_MOCK_CALENDAR === "true") {
+    return process.env.INTERVIEWER_EMAIL ?? "interviewer@niural.com";
+  }
+  // Real mode: use the first configured Google OAuth credential from DB
+  const creds = await prisma.interviewerCredentials.findFirst({
+    select: { interviewerEmail: true },
+  });
+  if (!creds) {
+    throw new SlotOfferError(
+      "No Google Calendar account connected. Visit http://localhost:3000/api/auth/google to connect."
+    );
+  }
+  return creds.interviewerEmail;
+}
 
 const SLOT_DURATION_MINUTES = 60;
 const HOLD_TTL_HOURS = 48;
@@ -15,6 +29,8 @@ export class SlotOfferError extends Error {}
 export class SlotConfirmError extends Error {}
 
 export async function offerInterviewSlots(applicationId: string): Promise<void> {
+  const interviewerEmail = await getInterviewerEmail();
+
   const application = await prisma.application.findUnique({
     where: { id: applicationId },
     include: { job: true },
@@ -34,7 +50,7 @@ export async function offerInterviewSlots(applicationId: string): Promise<void> 
 
   for (const slot of existing) {
     if (slot.googleEventId) {
-      await calendar.releaseSlot(INTERVIEWER_EMAIL, slot.googleEventId).catch(() => null);
+      await calendar.releaseSlot(interviewerEmail, slot.googleEventId).catch(() => null);
     }
   }
 
@@ -50,7 +66,7 @@ export async function offerInterviewSlots(applicationId: string): Promise<void> 
   const twoWeeksOut = new Date(tomorrow.getTime() + 14 * 24 * 60 * 60 * 1000);
 
   const availableSlots = await calendar.getAvailableSlots(
-    INTERVIEWER_EMAIL,
+    interviewerEmail,
     tomorrow,
     twoWeeksOut,
     SLOT_DURATION_MINUTES
@@ -66,7 +82,7 @@ export async function offerInterviewSlots(applicationId: string): Promise<void> 
   const createdSlots = await Promise.all(
     availableSlots.map(async (slot) => {
       const event = await calendar.holdSlot(
-        INTERVIEWER_EMAIL,
+        interviewerEmail,
         application.candidateName,
         application.candidateEmail,
         slot.start,
@@ -76,7 +92,7 @@ export async function offerInterviewSlots(applicationId: string): Promise<void> 
       return prisma.interviewSlot.create({
         data: {
           applicationId,
-          interviewerEmail: INTERVIEWER_EMAIL,
+          interviewerEmail,
           startTime: slot.start,
           endTime: slot.end,
           status: "HELD",
@@ -114,7 +130,7 @@ export async function offerInterviewSlots(applicationId: string): Promise<void> 
     data: {
       applicationId,
       eventType: "SLOTS_OFFERED",
-      payload: { slotCount: createdSlots.length, interviewerEmail: INTERVIEWER_EMAIL },
+      payload: { slotCount: createdSlots.length, interviewerEmail },
       idempotencyKey: `slots-offered:${applicationId}:${holdExpiresAt.getTime()}`,
     },
   });
@@ -124,6 +140,8 @@ export async function confirmInterviewSlot(
   applicationId: string,
   slotId: string
 ): Promise<void> {
+  const interviewerEmail = await getInterviewerEmail();
+
   const slot = await prisma.interviewSlot.findUnique({
     where: { id: slotId },
     include: { application: { include: { job: true } } },
@@ -146,7 +164,7 @@ export async function confirmInterviewSlot(
   await Promise.all(
     otherSlots.map((s) =>
       s.googleEventId
-        ? calendar.releaseSlot(INTERVIEWER_EMAIL, s.googleEventId).catch(() => null)
+        ? calendar.releaseSlot(interviewerEmail, s.googleEventId).catch(() => null)
         : Promise.resolve()
     )
   );
@@ -166,7 +184,7 @@ export async function confirmInterviewSlot(
   let meetLink: string | undefined;
   if (slot.googleEventId && calendar instanceof GoogleCalendarService) {
     meetLink = await calendar.confirmEvent(
-      INTERVIEWER_EMAIL,
+      interviewerEmail,
       slot.googleEventId,
       slot.application.candidateName
     ).catch(() => undefined);
@@ -196,7 +214,7 @@ export async function confirmInterviewSlot(
       payload: {
         slotId,
         startTime: slot.startTime.toISOString(),
-        interviewerEmail: INTERVIEWER_EMAIL,
+        interviewerEmail,
       },
       idempotencyKey: `slot-confirmed:${slotId}`,
     },
