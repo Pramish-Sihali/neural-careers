@@ -6,6 +6,8 @@ import {
   TranscriptAlreadyFetchedError,
 } from "@/lib/services/notetakerService";
 
+const FIREFLIES_API = "https://api.fireflies.ai/graphql";
+
 // Fireflies signs the raw request body with HMAC-SHA256 and sends it as
 // x-hub-signature: sha256=<hex> — same format as GitHub webhooks.
 function isValidSignature(rawBody: string, signatureHeader: string): boolean {
@@ -22,6 +24,32 @@ function isValidSignature(rawBody: string, signatureHeader: string): boolean {
   } catch {
     // Buffers differ in length — malformed signature header
     return false;
+  }
+}
+
+// Fetch the meeting_link for a Fireflies transcript.
+// Used as a fallback when no Interview row has a matching firefliesMeetingId.
+async function fetchMeetingLink(meetingId: string): Promise<string | null> {
+  try {
+    const res = await fetch(FIREFLIES_API, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${process.env.FIREFLIES_API_KEY}`,
+      },
+      body: JSON.stringify({
+        query: `query GetMeetingLink($id: String!) {
+          transcript(id: $id) { meeting_link }
+        }`,
+        variables: { id: meetingId },
+      }),
+    });
+    const { data } = (await res.json()) as {
+      data?: { transcript?: { meeting_link?: string } };
+    };
+    return data?.transcript?.meeting_link ?? null;
+  } catch {
+    return null;
   }
 }
 
@@ -47,15 +75,40 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ received: true });
   }
 
-  const interview = await prisma.interview.findFirst({
-    where: { firefliesMeetingId: body.meetingId },
+  const meetingId = body.meetingId;
+
+  // --- Fast path: direct meetingId match ---
+  let interview = await prisma.interview.findFirst({
+    where: { firefliesMeetingId: meetingId },
     select: { id: true, transcriptFetchedAt: true },
   });
 
+  // --- Fallback: match by Google Meet URL (Approach 3) ---
+  // Interview.firefliesMeetingId is null at creation time when the bot joins
+  // via a calendar invite. We resolve the Google Meet URL from Fireflies and
+  // match it against Interview.meetingUrl to find the right record.
   if (!interview) {
-    // Not found — log and return 200 so Fireflies does not retry indefinitely
+    const meetingLink = await fetchMeetingLink(meetingId);
+
+    if (meetingLink) {
+      interview = await prisma.interview.findFirst({
+        where: { meetingUrl: meetingLink, firefliesMeetingId: null },
+        select: { id: true, transcriptFetchedAt: true },
+      });
+
+      if (interview) {
+        // Link the meetingId now so future lookups use the fast path
+        await prisma.interview.update({
+          where: { id: interview.id },
+          data: { firefliesMeetingId: meetingId },
+        });
+      }
+    }
+  }
+
+  if (!interview) {
     console.warn(
-      `[fireflies webhook] No interview found for meetingId: ${body.meetingId}`
+      `[fireflies webhook] No interview found for meetingId: ${meetingId}`
     );
     return NextResponse.json({ received: true });
   }

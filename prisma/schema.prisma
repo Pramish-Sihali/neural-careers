@@ -291,8 +291,12 @@ model Interview {
   id                   String          @id @default(cuid())
   applicationId        String          @unique
   slotId               String          @unique
-  // Fireflies.ai meeting UUID — used to poll for transcript availability
+  // Fireflies.ai meeting UUID — set either at creation (addToLiveMeeting) or
+  // lazily by the webhook handler via meeting_link URL matching (Approach 3)
   firefliesMeetingId   String?
+  // Google Meet hangoutLink stored at slot confirmation — used by the webhook
+  // handler to match the Fireflies transcript when firefliesMeetingId is null
+  meetingUrl           String?
   // Raw Fireflies API response stored for reprocessing without re-fetching
   transcriptRaw        Json?
   transcriptText       String?         @db.Text // Plain text, newline-separated by speaker

@@ -209,13 +209,16 @@ export async function confirmInterviewSlot(
       .catch(() => undefined);
   }
 
-  // Create Interview record
+  // Create Interview record — store meetingUrl (Google Meet hangoutLink) so the
+  // Fireflies webhook handler can match transcripts by URL when firefliesMeetingId
+  // is null (Approach 3 linkage strategy, see docs/coding-reference/fireflies-api-reference.md)
   await prisma.interview.create({
     data: {
       applicationId,
       slotId,
       status: "SCHEDULED",
       scheduledAt: slot.startTime,
+      ...(meetLink ? { meetingUrl: meetLink } : {}),
     },
   });
 
