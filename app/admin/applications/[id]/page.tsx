@@ -8,6 +8,8 @@ import { StatusBadge } from "@/components/admin/StatusBadge";
 import { ScreenActions } from "@/components/admin/ScreenActions";
 import { SimulateInterviewButton } from "@/components/admin/SimulateInterviewButton";
 import { SendBotButton } from "@/components/admin/SendBotButton";
+import { GenerateOfferButton } from "@/components/admin/GenerateOfferButton";
+import { findLatestOfferForApplication } from "@/lib/repositories/offerRepo";
 
 async function getApplication(id: string) {
   const { data, error } = await supabase
@@ -46,6 +48,7 @@ export default async function AdminApplicationDetailPage({
   if (!app) notFound();
 
   const resumeSignedUrl = await getResumeSignedUrl(app.resumeUrl);
+  const latestOffer = await findLatestOfferForApplication(app.id);
 
   const screening = app.screeningSummary as {
     strengths?: string[];
@@ -86,6 +89,47 @@ export default async function AdminApplicationDetailPage({
       <div className="space-y-6">
         {/* AI Screening Actions */}
         <ScreenActions applicationId={app.id} candidateName={app.candidateName} currentStatus={app.status} />
+
+        {/* Offer stage */}
+        {(app.status === "POST_INTERVIEW" ||
+          app.status === "OFFER_SENT" ||
+          app.status === "OFFER_SIGNED" ||
+          app.status === "ONBOARDED") && (
+          <section className="rounded-lg border p-6 space-y-3">
+            <h2 className="font-semibold">Offer</h2>
+            {latestOffer ? (
+              <div className="flex items-center justify-between">
+                <div className="text-sm">
+                  <p className="font-medium text-foreground">
+                    {latestOffer.jobTitle} — ${latestOffer.baseSalary.toLocaleString("en-US")}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Status: <span className="font-medium">{latestOffer.status}</span>
+                    {latestOffer.sentAt && ` · Sent ${latestOffer.sentAt.toLocaleDateString()}`}
+                    {latestOffer.signedAt && ` · Signed ${latestOffer.signedAt.toLocaleDateString()}`}
+                  </p>
+                </div>
+                <Link
+                  href={`/admin/offers/${latestOffer.id}`}
+                  className="rounded-md border px-3 py-1.5 text-xs font-medium hover:bg-muted"
+                >
+                  Open offer →
+                </Link>
+              </div>
+            ) : (
+              <>
+                <p className="text-sm text-muted-foreground">
+                  Interview complete. Ready to generate the offer letter.
+                </p>
+                <GenerateOfferButton
+                  applicationId={app.id}
+                  candidateName={app.candidateName}
+                  jobTitle={app.job?.title ?? ""}
+                />
+              </>
+            )}
+          </section>
+        )}
 
         {/* Cover letter */}
         {app.coverLetter && (

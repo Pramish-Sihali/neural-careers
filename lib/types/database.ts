@@ -172,6 +172,42 @@ export interface ScheduledNudge {
   createdAt: Date;
 }
 
+export interface Offer {
+  id: string;
+  applicationId: string;
+  jobTitle: string;
+  startDate: Date;
+  baseSalary: number; // whole USD
+  compensationStructure: string;
+  equity: string | null;
+  bonus: string | null;
+  reportingManager: string;
+  customTerms: string | null;
+  letterHtml: string;
+  letterHash: string;
+  status: OfferStatus;
+  sentAt: Date | null;
+  signedAt: Date | null;
+  declinedAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+  // Optional joined relations
+  application?: Application;
+  signature?: OfferSignature | null;
+}
+
+export interface OfferSignature {
+  id: string;
+  offerId: string;
+  candidateId: string;
+  signatureBase64: string;
+  ipAddress: string;
+  userAgent: string;
+  signedAt: Date;
+  signatureHash: string;
+  createdAt: Date;
+}
+
 // ---------------------------------------------------------------------------
 // Date-parsing helpers — Supabase returns ISO strings; convert to Date objects
 // ---------------------------------------------------------------------------
@@ -269,6 +305,53 @@ export function parseInterviewSlotRow(row: Record<string, unknown>): InterviewSl
           },
         }
       : {}),
+  };
+}
+
+export function parseOfferRow(row: Record<string, unknown>): Offer {
+  return {
+    id: row.id as string,
+    applicationId: row.applicationId as string,
+    jobTitle: row.jobTitle as string,
+    startDate: d(row.startDate as string),
+    baseSalary: row.baseSalary as number,
+    compensationStructure: row.compensationStructure as string,
+    equity: (row.equity as string | null) ?? null,
+    bonus: (row.bonus as string | null) ?? null,
+    reportingManager: row.reportingManager as string,
+    customTerms: (row.customTerms as string | null) ?? null,
+    letterHtml: (row.letterHtml as string) ?? "",
+    letterHash: (row.letterHash as string) ?? "",
+    status: row.status as OfferStatus,
+    sentAt: dn(row.sentAt as string | null),
+    signedAt: dn(row.signedAt as string | null),
+    declinedAt: dn(row.declinedAt as string | null),
+    createdAt: d(row.createdAt as string),
+    updatedAt: d(row.updatedAt as string),
+    ...(row.application
+      ? { application: parseApplicationRow(row.application as Record<string, unknown>) }
+      : {}),
+    ...(row.signature !== undefined
+      ? {
+          signature: row.signature
+            ? parseOfferSignatureRow(row.signature as Record<string, unknown>)
+            : null,
+        }
+      : {}),
+  };
+}
+
+export function parseOfferSignatureRow(row: Record<string, unknown>): OfferSignature {
+  return {
+    id: row.id as string,
+    offerId: row.offerId as string,
+    candidateId: row.candidateId as string,
+    signatureBase64: row.signatureBase64 as string,
+    ipAddress: row.ipAddress as string,
+    userAgent: row.userAgent as string,
+    signedAt: d(row.signedAt as string),
+    signatureHash: row.signatureHash as string,
+    createdAt: d(row.createdAt as string),
   };
 }
 
