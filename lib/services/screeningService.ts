@@ -1,4 +1,5 @@
-import { prisma } from "@/lib/prisma";
+import { supabase } from "@/lib/supabase";
+import { parseApplicationRow } from "@/lib/types/database";
 import { screenResume } from "@/lib/ai/prompts/screenResume";
 import { enrichCandidate } from "@/lib/services/enrichmentService";
 
@@ -10,35 +11,44 @@ export class AlreadyScreenedError extends Error {
 }
 
 export async function screenApplication(applicationId: string) {
-  const application = await prisma.application.findUnique({
-    where: { id: applicationId },
-    include: { job: true },
-  });
+  const { data: raw, error } = await supabase
+    .from("applications")
+    .select("*, job:jobs(*)")
+    .eq("id", applicationId)
+    .single();
 
-  if (!application) throw new Error(`Application ${applicationId} not found`);
+  if (error) throw new Error(`Application ${applicationId} not found`);
+
+  const application = parseApplicationRow(raw as Record<string, unknown>);
+
   if (application.status !== "APPLIED") throw new AlreadyScreenedError();
 
+  const job = application.job!;
   const jobDescription = [
-    application.job.description,
-    `Requirements: ${application.job.requirements}`,
-    `Responsibilities: ${application.job.responsibilities}`,
+    job.description,
+    `Requirements: ${job.requirements}`,
+    `Responsibilities: ${job.responsibilities}`,
   ].join("\n\n");
 
   const result = await screenResume(jobDescription, application.resumeText);
 
   // Optimistic lock: only update if version hasn't changed
-  const updated = await prisma.application.updateMany({
-    where: { id: applicationId, version: application.version },
-    data: {
+  const { data: updated, error: updateError } = await supabase
+    .from("applications")
+    .update({
       status: "SCREENED",
       fitScore: result.fitScore,
       screeningSummary: result,
-      screenedAt: new Date(),
-      version: { increment: 1 },
-    },
-  });
+      screenedAt: new Date().toISOString(),
+      version: application.version + 1,
+      updatedAt: new Date().toISOString(),
+    })
+    .eq("id", applicationId)
+    .eq("version", application.version)
+    .select();
 
-  if (updated.count === 0) {
+  if (updateError) throw updateError;
+  if (!updated || updated.length === 0) {
     throw new AlreadyScreenedError();
   }
 

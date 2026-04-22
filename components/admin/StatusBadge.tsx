@@ -1,4 +1,4 @@
-import type { ApplicationStatus } from "@prisma/client";
+import type { ApplicationStatus } from "@/lib/types/database";
 
 const STATUS_CONFIG: Record<ApplicationStatus, { label: string; className: string }> = {
   APPLIED:        { label: "Applied",        className: "bg-gray-100 text-gray-700" },

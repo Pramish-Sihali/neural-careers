@@ -3,7 +3,7 @@ import { createApplication, getApplicationByEmailAndJob } from "@/lib/repositori
 import { parseResumeBuffer, uploadResume } from "@/lib/services/resumeService";
 import { getEmailService } from "@/lib/integrations/email";
 import { getJobById } from "@/lib/repositories/jobRepo";
-import type { Application } from "@prisma/client";
+import type { Application } from "@/lib/types/database";
 
 export class DuplicateApplicationError extends Error {
   constructor() {
@@ -47,9 +47,8 @@ export async function submitApplication(
 
   const resumeText = await parseResumeBuffer(input.resumeBuffer, input.resumeFileName);
 
-  // Create application first to get the ID for the storage path
   const application = await createApplication({
-    job: { connect: { id: input.jobId } },
+    jobId: input.jobId,
     candidateName: input.candidateName,
     candidateEmail: input.candidateEmail,
     linkedinUrl: input.linkedinUrl,
@@ -68,11 +67,11 @@ export async function submitApplication(
       application.id,
       input.resumeMimeType
     );
-    const { prisma } = await import("@/lib/prisma");
-    await prisma.application.update({
-      where: { id: application.id },
-      data: { resumeUrl },
-    });
+    const { supabase } = await import("@/lib/supabase");
+    await supabase
+      .from("applications")
+      .update({ resumeUrl, updatedAt: new Date().toISOString() })
+      .eq("id", application.id);
   } catch (err) {
     console.error("Resume storage upload failed (non-fatal):", err);
   }
@@ -94,7 +93,6 @@ async function sendConfirmationEmail(
   applicationId: string
 ) {
   try {
-    // Dynamic import to avoid SSR issues with React Email
     const { default: ApplicationConfirmation } = await import(
       "@/emails/ApplicationConfirmation"
     );
@@ -107,7 +105,6 @@ async function sendConfirmationEmail(
       html,
     });
   } catch (err) {
-    // Non-fatal: log but don't fail the application submission
     console.error("Confirmation email failed:", err);
   }
 }

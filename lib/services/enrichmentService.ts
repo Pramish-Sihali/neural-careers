@@ -1,20 +1,23 @@
-import { prisma } from "@/lib/prisma";
+import { supabase } from "@/lib/supabase";
 import { fetchGitHubDigest } from "@/lib/integrations/enrichment/github";
 import { searchLinkedIn, searchCandidate } from "@/lib/integrations/enrichment/tavily";
 import { synthesizeResearch } from "@/lib/ai/prompts/synthesizeResearch";
 
 export async function enrichCandidate(applicationId: string): Promise<void> {
-  const application = await prisma.application.findUnique({
-    where: { id: applicationId },
-    select: {
-      candidateName: true,
-      linkedinUrl: true,
-      githubUrl: true,
-      resumeText: true,
-    },
-  });
+  const { data: raw, error } = await supabase
+    .from("applications")
+    .select("candidateName, linkedinUrl, githubUrl, resumeText")
+    .eq("id", applicationId)
+    .single();
 
-  if (!application) throw new Error(`Application ${applicationId} not found`);
+  if (error) throw new Error(`Application ${applicationId} not found`);
+
+  const application = raw as {
+    candidateName: string;
+    linkedinUrl: string | null;
+    githubUrl: string | null;
+    resumeText: string;
+  };
 
   const [linkedinSummary, githubDigest, webSearch] = await Promise.allSettled([
     searchLinkedIn(application.candidateName),
@@ -37,29 +40,42 @@ export async function enrichCandidate(applicationId: string): Promise<void> {
 
   const synthesis = await synthesizeResearch(application.resumeText, onlineData);
 
-  await prisma.candidateEnrichment.upsert({
-    where: { applicationId },
-    create: {
+  const githubUsername =
+    githubDigest.status === "fulfilled" && githubDigest.value
+      ? githubDigest.value.username
+      : undefined;
+
+  const enrichmentData = {
+    linkedinUrl: application.linkedinUrl,
+    linkedinSummary: onlineData.linkedinSummary ?? null,
+    githubUsername: githubUsername ?? null,
+    githubDigest: onlineData.githubDigest
+      ? JSON.parse(JSON.stringify(onlineData.githubDigest))
+      : null,
+    candidateBrief: synthesis.candidateBrief,
+    discrepancies: synthesis.discrepancies,
+    enrichedAt: new Date().toISOString(),
+  };
+
+  // Check if enrichment row exists (upsert-safe pattern)
+  const { data: existing } = await supabase
+    .from("candidate_enrichments")
+    .select("id")
+    .eq("applicationId", applicationId)
+    .maybeSingle();
+
+  if (existing) {
+    await supabase
+      .from("candidate_enrichments")
+      .update(enrichmentData)
+      .eq("applicationId", applicationId);
+  } else {
+    await supabase.from("candidate_enrichments").insert({
+      id: crypto.randomUUID(),
       applicationId,
-      linkedinUrl: application.linkedinUrl,
-      linkedinSummary: onlineData.linkedinSummary,
-      githubUsername:
-        githubDigest.status === "fulfilled" && githubDigest.value
-          ? githubDigest.value.username
-          : undefined,
-      githubDigest: onlineData.githubDigest ? JSON.parse(JSON.stringify(onlineData.githubDigest)) : undefined,
-      candidateBrief: synthesis.candidateBrief,
-      discrepancies: synthesis.discrepancies,
-      enrichedAt: new Date(),
-    },
-    update: {
-      linkedinSummary: onlineData.linkedinSummary,
-      githubDigest: onlineData.githubDigest ? JSON.parse(JSON.stringify(onlineData.githubDigest)) : undefined,
-      candidateBrief: synthesis.candidateBrief,
-      discrepancies: synthesis.discrepancies,
-      enrichedAt: new Date(),
-    },
-  });
+      ...enrichmentData,
+    });
+  }
 }
 
 function extractGitHubUsername(url: string): string {

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth/requireAdmin";
-import { prisma } from "@/lib/prisma";
-import type { ApplicationStatus } from "@prisma/client";
+import { supabase } from "@/lib/supabase";
+import type { ApplicationStatus } from "@/lib/types/database";
 
 const VALID_STATUSES = new Set<ApplicationStatus>([
   "APPLIED", "SCREENED", "SHORTLISTED", "INTERVIEWING",
@@ -23,10 +23,13 @@ export async function PATCH(
     return NextResponse.json({ error: "Invalid status" }, { status: 422 });
   }
 
-  const updated = await prisma.application.update({
-    where: { id },
-    data: { status: body.status as ApplicationStatus },
-  });
+  const { data, error } = await supabase
+    .from("applications")
+    .update({ status: body.status, updatedAt: new Date().toISOString() })
+    .eq("id", id)
+    .select("status")
+    .single();
 
-  return NextResponse.json({ status: updated.status });
+  if (error) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  return NextResponse.json({ status: (data as Record<string, unknown>).status });
 }

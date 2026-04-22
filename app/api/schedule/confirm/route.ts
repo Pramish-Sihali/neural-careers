@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyScheduleToken } from "@/lib/auth/scheduleToken";
 import { confirmInterviewSlot, SlotConfirmError } from "@/lib/services/calendarService";
-import { prisma } from "@/lib/prisma";
+import { supabase } from "@/lib/supabase";
 
 // ---------------------------------------------------------------------------
 // Shared HTML helpers
@@ -115,7 +115,12 @@ export async function GET(req: NextRequest) {
   }
 
   // Fetch the slot to display its datetime on the success page (before confirming)
-  const slotRow = await prisma.interviewSlot.findUnique({ where: { id: slotId } });
+  const { data: slotRaw } = await supabase
+    .from("interview_slots")
+    .select("startTime")
+    .eq("id", slotId)
+    .maybeSingle();
+  const slotRow = slotRaw ? { startTime: new Date((slotRaw as Record<string, unknown>).startTime as string) } : null;
 
   try {
     await confirmInterviewSlot(applicationId, slotId);

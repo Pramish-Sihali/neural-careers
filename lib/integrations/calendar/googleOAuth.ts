@@ -1,6 +1,6 @@
 import { google } from "googleapis";
 import type { OAuth2Client } from "google-auth-library";
-import { prisma } from "@/lib/prisma";
+import { supabase } from "@/lib/supabase";
 import { encryptTokens, decryptTokens } from "./tokenCrypto";
 
 const SCOPES = [
@@ -28,7 +28,7 @@ export function getOAuth2Client(): OAuth2Client {
 export function getAuthUrl(): string {
   return buildClient().generateAuthUrl({
     access_type: "offline",
-    prompt: "consent",    // always return refresh_token
+    prompt: "consent",
     scope: SCOPES,
   });
 }
@@ -40,24 +40,36 @@ export async function exchangeCodeForTokens(
   const { tokens } = await client.getToken(code);
   client.setCredentials(tokens);
 
-  // Fetch the authenticated user's email
   const oauth2 = google.oauth2({ version: "v2", auth: client });
   const { data } = await oauth2.userinfo.get();
   const email = data.email;
   if (!email) throw new Error("Could not determine interviewer email from Google");
 
-  // Persist encrypted tokens — upsert so re-auth overwrites cleanly
-  await prisma.interviewerCredentials.upsert({
-    where: { interviewerEmail: email },
-    create: {
+  const encrypted = encryptTokens(tokens);
+  const nowIso = new Date().toISOString();
+
+  // Check if record exists, then update or insert
+  const { data: existing } = await supabase
+    .from("interviewer_credentials")
+    .select("id")
+    .eq("interviewerEmail", email)
+    .maybeSingle();
+
+  if (existing) {
+    await supabase
+      .from("interviewer_credentials")
+      .update({ encryptedTokens: encrypted, updatedAt: nowIso })
+      .eq("interviewerEmail", email);
+  } else {
+    await supabase.from("interviewer_credentials").insert({
+      id: crypto.randomUUID(),
       interviewerEmail: email,
-      encryptedTokens: encryptTokens(tokens),
-    },
-    update: {
-      // Merge: only overwrite refresh_token if Google returned a new one
-      encryptedTokens: encryptTokens(tokens),
-    },
-  });
+      encryptedTokens: encrypted,
+      isConfigured: true,
+      createdAt: nowIso,
+      updatedAt: nowIso,
+    });
+  }
 
   return { email };
 }
@@ -65,30 +77,32 @@ export async function exchangeCodeForTokens(
 export async function getAuthorizedClient(
   interviewerEmail: string
 ): Promise<OAuth2Client> {
-  const creds = await prisma.interviewerCredentials.findUnique({
-    where: { interviewerEmail },
-  });
-  if (!creds) {
+  const { data, error } = await supabase
+    .from("interviewer_credentials")
+    .select("encryptedTokens")
+    .eq("interviewerEmail", interviewerEmail)
+    .single();
+
+  if (error || !data) {
     throw new Error(
       `No credentials found for ${interviewerEmail}. Visit /api/auth/google to connect the account.`
     );
   }
 
+  const creds = data as { encryptedTokens: string };
   const client = buildClient();
   const tokens = decryptTokens(creds.encryptedTokens);
   client.setCredentials(tokens);
 
-  // Persist any refreshed tokens automatically
   client.on("tokens", async (newTokens) => {
     const merged: Record<string, unknown> = { ...tokens, ...newTokens };
-    // refresh_token is only present on first auth — never overwrite with undefined
     if (!newTokens.refresh_token && tokens.refresh_token) {
       merged.refresh_token = tokens.refresh_token;
     }
-    await prisma.interviewerCredentials.update({
-      where: { interviewerEmail },
-      data: { encryptedTokens: encryptTokens(merged) },
-    });
+    await supabase
+      .from("interviewer_credentials")
+      .update({ encryptedTokens: encryptTokens(merged), updatedAt: new Date().toISOString() })
+      .eq("interviewerEmail", interviewerEmail);
   });
 
   return client;

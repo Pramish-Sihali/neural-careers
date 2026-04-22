@@ -13,7 +13,7 @@ import {
 } from "@tanstack/react-table";
 import { useState } from "react";
 import { StatusBadge } from "./StatusBadge";
-import type { ApplicationStatus } from "@prisma/client";
+import type { ApplicationStatus } from "@/lib/types/database";
 
 export interface PipelineRow {
   id: string;

@@ -5,7 +5,7 @@ import { BatchScanButton } from "./BatchScanButton";
 import { NewApplicationsTable, type NewApplicationRow } from "./NewApplicationsTable";
 import { PipelineTable, type PipelineRow } from "./PipelineTable";
 import { InterviewActivityFeed, type ActivitySlot } from "./InterviewActivityFeed";
-import type { ApplicationStatus } from "@prisma/client";
+import type { ApplicationStatus } from "@/lib/types/database";
 
 interface ScreenResult {
   fitScore: number;

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth/requireAdmin";
-import { getApplicationById } from "@/lib/repositories/applicationRepo";
-import { prisma } from "@/lib/prisma";
+import { supabase } from "@/lib/supabase";
+import { parseApplicationRow } from "@/lib/types/database";
 
 export async function GET(
   req: NextRequest,
@@ -11,11 +11,12 @@ export async function GET(
   if (!auth.authorized) return auth.response;
 
   const { id } = await params;
-  const application = await prisma.application.findUnique({
-    where: { id },
-    include: { job: true, enrichment: true },
-  });
+  const { data, error } = await supabase
+    .from("applications")
+    .select("*, job:jobs(*), enrichment:candidate_enrichments(*)")
+    .eq("id", id)
+    .single();
 
-  if (!application) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  return NextResponse.json(application);
+  if (error || !data) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  return NextResponse.json(parseApplicationRow(data as Record<string, unknown>));
 }

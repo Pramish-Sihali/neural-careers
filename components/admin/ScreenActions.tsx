@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import type { ApplicationStatus } from "@prisma/client";
+import type { ApplicationStatus } from "@/lib/types/database";
 import { SlotPickerModal } from "./SlotPickerModal";
 
 interface Props {

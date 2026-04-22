@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth/requireAdmin";
-import { prisma } from "@/lib/prisma";
+import { supabase } from "@/lib/supabase";
 import { enrichCandidate } from "@/lib/services/enrichmentService";
 
 export async function POST(
@@ -12,28 +12,34 @@ export async function POST(
 
   const { id } = await params;
 
-  const application = await prisma.application.findUnique({
-    where: { id },
-    select: { status: true },
-  });
+  const { data, error } = await supabase
+    .from("applications")
+    .select("status")
+    .eq("id", id)
+    .single();
 
-  if (!application) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  if (application.status !== "SCREENED") {
+  if (error || !data) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  const app = data as Record<string, unknown>;
+  if (app.status !== "SCREENED") {
     return NextResponse.json(
       { error: "Application must be SCREENED before shortlisting" },
       { status: 409 }
     );
   }
 
-  const updated = await prisma.application.update({
-    where: { id },
-    data: { status: "SHORTLISTED", shortlistedAt: new Date() },
-  });
+  const nowIso = new Date().toISOString();
+  const { data: updated, error: updateError } = await supabase
+    .from("applications")
+    .update({ status: "SHORTLISTED", shortlistedAt: nowIso, updatedAt: nowIso })
+    .eq("id", id)
+    .select("status")
+    .single();
 
-  // Kick off enrichment async (may already be running from screening)
+  if (updateError) return NextResponse.json({ error: "Update failed" }, { status: 500 });
+
   enrichCandidate(id).catch((err) =>
     console.error(`Enrichment failed for ${id}:`, err)
   );
 
-  return NextResponse.json({ status: updated.status });
+  return NextResponse.json({ status: (updated as Record<string, unknown>).status });
 }

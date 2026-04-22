@@ -1,4 +1,4 @@
-import type { Job } from "@prisma/client";
+import type { Job } from "@/lib/types/database";
 
 function splitBullets(text: string): string[] {
   return text

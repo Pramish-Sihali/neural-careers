@@ -1,25 +1,37 @@
 export const dynamic = "force-dynamic";
 
-import { prisma } from "@/lib/prisma";
+import { supabase } from "@/lib/supabase";
+import { parseApplicationRow, parseInterviewSlotRow } from "@/lib/types/database";
 import { AdminPipelineClient } from "@/components/admin/AdminPipelineClient";
 import type { NewApplicationRow } from "@/components/admin/NewApplicationsTable";
 import type { PipelineRow } from "@/components/admin/PipelineTable";
 import type { ActivitySlot } from "@/components/admin/InterviewActivityFeed";
 
 async function getData(searchParams: Record<string, string>) {
-  const [applications, slots, calendarCreds] = await Promise.all([
-    prisma.application.findMany({
-      include: { job: true },
-      orderBy: { createdAt: "desc" },
-    }),
-    prisma.interviewSlot.findMany({
-      include: { application: { include: { job: true } } },
-      orderBy: { startTime: "asc" },
-    }),
+  const [appsResult, slotsResult, calendarCreds] = await Promise.all([
+    supabase
+      .from("applications")
+      .select("*, job:jobs(*)")
+      .order("createdAt", { ascending: false }),
+    supabase
+      .from("interview_slots")
+      .select("*, application:applications(*, job:jobs(*))")
+      .order("startTime", { ascending: true }),
     process.env.USE_MOCK_CALENDAR !== "true"
-      ? prisma.interviewerCredentials.findFirst({ select: { interviewerEmail: true } })
-      : Promise.resolve(null),
+      ? supabase
+          .from("interviewer_credentials")
+          .select("interviewerEmail")
+          .limit(1)
+          .maybeSingle()
+      : Promise.resolve({ data: null, error: null }),
   ]);
+
+  const applications = (appsResult.data ?? []).map((row) =>
+    parseApplicationRow(row as Record<string, unknown>)
+  );
+  const slots = (slotsResult.data ?? []).map((row) =>
+    parseInterviewSlotRow(row as Record<string, unknown>)
+  );
 
   const newApps: NewApplicationRow[] = applications
     .filter((a) => a.status === "APPLIED")
@@ -27,7 +39,7 @@ async function getData(searchParams: Record<string, string>) {
       id: a.id,
       candidateName: a.candidateName,
       candidateEmail: a.candidateEmail,
-      jobTitle: a.job.title,
+      jobTitle: a.job!.title,
       createdAt: a.createdAt.toISOString(),
     }));
 
@@ -39,22 +51,22 @@ async function getData(searchParams: Record<string, string>) {
       candidateEmail: a.candidateEmail,
       status: a.status,
       fitScore: a.fitScore,
-      jobTitle: a.job.title,
+      jobTitle: a.job!.title,
       createdAt: a.createdAt.toISOString(),
     }));
 
   const activitySlots: ActivitySlot[] = slots.map((s) => ({
     id: s.id,
     applicationId: s.applicationId,
-    candidateName: s.application.candidateName,
-    jobTitle: s.application.job.title,
+    candidateName: s.application!.candidateName,
+    jobTitle: s.application!.job!.title,
     startTime: s.startTime.toISOString(),
     endTime: s.endTime.toISOString(),
     status: s.status,
   }));
 
   const authStatus = searchParams.calendar_auth as string | undefined;
-  const calendarConnected = !!calendarCreds;
+  const calendarConnected = !!(calendarCreds as { data: unknown }).data;
 
   return { newApps, pipeline, activitySlots, calendarConnected, authStatus };
 }
@@ -72,7 +84,6 @@ export default async function AdminApplicationsPage({ searchParams }: Props) {
 
   return (
     <main className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8 space-y-6">
-      {/* Google Calendar auth banner — only shown in real mode */}
       {!useMock && (
         <div
           className={`rounded-lg px-4 py-3 text-sm flex items-center justify-between ${

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth/requireAdmin";
 import { listApplications } from "@/lib/repositories/applicationRepo";
-import type { ApplicationStatus } from "@prisma/client";
+import type { ApplicationStatus } from "@/lib/types/database";
 
 export async function GET(req: NextRequest) {
   const auth = requireAdmin(req);

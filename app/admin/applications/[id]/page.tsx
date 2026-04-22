@@ -1,17 +1,21 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, FileText, ExternalLink } from "lucide-react";
-import { prisma } from "@/lib/prisma";
+import { supabase } from "@/lib/supabase";
 import { createClient } from "@supabase/supabase-js";
+import { parseApplicationRow } from "@/lib/types/database";
 import { StatusBadge } from "@/components/admin/StatusBadge";
 import { ScreenActions } from "@/components/admin/ScreenActions";
 import { SimulateInterviewButton } from "@/components/admin/SimulateInterviewButton";
 
 async function getApplication(id: string) {
-  return prisma.application.findUnique({
-    where: { id },
-    include: { job: true, enrichment: true, interview: true },
-  });
+  const { data, error } = await supabase
+    .from("applications")
+    .select("*, job:jobs(*), enrichment:candidate_enrichments(*), interview:interviews(*)")
+    .eq("id", id)
+    .maybeSingle();
+  if (error || !data) return null;
+  return parseApplicationRow(data as Record<string, unknown>);
 }
 
 async function getResumeSignedUrl(storagePath: string): Promise<string | null> {
@@ -65,7 +69,7 @@ export default async function AdminApplicationDetailPage({
           {app.phone && (
             <p className="text-sm text-muted-foreground">{app.phone}</p>
           )}
-          <p className="text-sm text-muted-foreground">{app.job.title}</p>
+          <p className="text-sm text-muted-foreground">{app.job?.title}</p>
           {app.yearsOfExperience != null && (
             <p className="text-sm text-muted-foreground">{app.yearsOfExperience} yrs experience</p>
           )}
@@ -127,7 +131,7 @@ export default async function AdminApplicationDetailPage({
           <section className="rounded-lg border p-6 space-y-3">
             <h2 className="font-semibold">Candidate Research</h2>
             <p className="text-sm text-muted-foreground">{app.enrichment.candidateBrief}</p>
-            {app.enrichment.githubDigest && (
+            {!!app.enrichment.githubDigest && (
               <div>
                 <p className="text-xs font-semibold uppercase tracking-wide mb-1">GitHub</p>
                 <pre className="text-xs bg-muted rounded p-3 overflow-auto">

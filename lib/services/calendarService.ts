@@ -1,4 +1,5 @@
-import { prisma } from "@/lib/prisma";
+import { supabase } from "@/lib/supabase";
+import { parseApplicationRow, parseInterviewSlotRow } from "@/lib/types/database";
 import { getCalendarService } from "@/lib/integrations/calendar";
 import { GoogleCalendarService } from "@/lib/integrations/calendar/GoogleCalendarService";
 import { signScheduleToken } from "@/lib/auth/scheduleToken";
@@ -6,20 +7,21 @@ import { getEmailService } from "@/lib/integrations/email";
 import { renderInterviewInviteEmail } from "@/emails/InterviewInvite";
 
 export async function getInterviewerEmail(): Promise<string> {
-  // Mock mode: use env var (no DB lookup needed)
   if (process.env.USE_MOCK_CALENDAR === "true") {
     return process.env.INTERVIEWER_EMAIL ?? "interviewer@niural.com";
   }
-  // Real mode: use the first configured Google OAuth credential from DB
-  const creds = await prisma.interviewerCredentials.findFirst({
-    select: { interviewerEmail: true },
-  });
-  if (!creds) {
+  const { data, error } = await supabase
+    .from("interviewer_credentials")
+    .select("interviewerEmail")
+    .limit(1)
+    .maybeSingle();
+  if (error) throw new SlotOfferError(error.message);
+  if (!data) {
     throw new SlotOfferError(
       "No Google Calendar account connected. Visit http://localhost:3000/api/auth/google to connect."
     );
   }
-  return creds.interviewerEmail;
+  return (data as Record<string, unknown>).interviewerEmail as string;
 }
 
 const SLOT_DURATION_MINUTES = 60;
@@ -34,41 +36,46 @@ export async function offerInterviewSlots(
 ): Promise<void> {
   const interviewerEmail = await getInterviewerEmail();
 
-  const application = await prisma.application.findUnique({
-    where: { id: applicationId },
-    include: { job: true },
-  });
+  const { data: appRaw, error: appError } = await supabase
+    .from("applications")
+    .select("*, job:jobs(*)")
+    .eq("id", applicationId)
+    .single();
 
-  if (!application) throw new SlotOfferError("Application not found");
+  if (appError) throw new SlotOfferError("Application not found");
+  const application = parseApplicationRow(appRaw as Record<string, unknown>);
+
   if (application.status !== "SHORTLISTED") {
     throw new SlotOfferError("Application must be SHORTLISTED to offer slots");
   }
 
-  // Release any previously held slots before offering new ones
-  const existing = await prisma.interviewSlot.findMany({
-    where: { applicationId, status: "HELD" },
-  });
+  // Release any previously held slots
+  const { data: existingSlots } = await supabase
+    .from("interview_slots")
+    .select("id, googleEventId, interviewerEmail")
+    .eq("applicationId", applicationId)
+    .eq("status", "HELD");
 
   const calendar = getCalendarService();
 
-  for (const slot of existing) {
-    if (slot.googleEventId) {
-      await calendar.releaseSlot(interviewerEmail, slot.googleEventId).catch(() => null);
+  for (const slot of existingSlots ?? []) {
+    const s = slot as { googleEventId: string | null; interviewerEmail: string };
+    if (s.googleEventId) {
+      await calendar.releaseSlot(s.interviewerEmail, s.googleEventId).catch(() => null);
     }
   }
 
-  await prisma.interviewSlot.updateMany({
-    where: { applicationId, status: "HELD" },
-    data: { status: "RELEASED", releasedAt: new Date() },
-  });
+  await supabase
+    .from("interview_slots")
+    .update({ status: "RELEASED", releasedAt: new Date().toISOString(), updatedAt: new Date().toISOString() })
+    .eq("applicationId", applicationId)
+    .eq("status", "HELD");
 
   let availableSlots: Array<{ start: Date; end: Date }>;
 
   if (explicitSlots && explicitSlots.length > 0) {
-    // Admin-selected slots — use them directly, skip auto-generation
     availableSlots = explicitSlots;
   } else {
-    // Auto-generate 5 fresh slots starting tomorrow
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
     tomorrow.setHours(0, 0, 0, 0);
@@ -87,8 +94,8 @@ export async function offerInterviewSlots(
   }
 
   const holdExpiresAt = new Date(Date.now() + HOLD_TTL_HOURS * 60 * 60 * 1000);
+  const now = new Date().toISOString();
 
-  // Create hold events and DB rows
   const createdSlots = await Promise.all(
     availableSlots.map(async (slot) => {
       const event = await calendar.holdSlot(
@@ -99,28 +106,34 @@ export async function offerInterviewSlots(
         slot.end
       );
 
-      return prisma.interviewSlot.create({
-        data: {
+      const { data: row, error } = await supabase
+        .from("interview_slots")
+        .insert({
+          id: crypto.randomUUID(),
           applicationId,
           interviewerEmail,
-          startTime: slot.start,
-          endTime: slot.end,
+          startTime: slot.start.toISOString(),
+          endTime: slot.end.toISOString(),
           status: "HELD",
           googleEventId: event.googleEventId,
-          holdExpiresAt,
-        },
-      });
+          holdExpiresAt: holdExpiresAt.toISOString(),
+          createdAt: now,
+          updatedAt: now,
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+      return parseInterviewSlotRow(row as Record<string, unknown>);
     })
   );
 
-  // Sign a schedule JWT for the candidate (one token covers all slots)
   const token = await signScheduleToken(applicationId);
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "";
 
-  // Send slot-offer email with per-slot direct confirm URLs
   const html = renderInterviewInviteEmail({
     candidateName: application.candidateName,
-    jobTitle: application.job.title,
+    jobTitle: application.job!.title,
     slots: createdSlots.map((s) => ({
       id: s.id,
       startTime: s.startTime.toISOString(),
@@ -131,18 +144,17 @@ export async function offerInterviewSlots(
 
   await getEmailService().send({
     to: application.candidateEmail,
-    subject: `Interview invitation — ${application.job.title}`,
+    subject: `Interview invitation — ${application.job!.title}`,
     html,
   });
 
-  // Log event
-  await prisma.eventsLog.create({
-    data: {
-      applicationId,
-      eventType: "SLOTS_OFFERED",
-      payload: { slotCount: createdSlots.length, interviewerEmail },
-      idempotencyKey: `slots-offered:${applicationId}:${holdExpiresAt.getTime()}`,
-    },
+  await supabase.from("events_log").insert({
+    id: crypto.randomUUID(),
+    applicationId,
+    eventType: "SLOTS_OFFERED",
+    payload: { slotCount: createdSlots.length, interviewerEmail },
+    idempotencyKey: `slots-offered:${applicationId}:${holdExpiresAt.getTime()}`,
+    createdAt: now,
   });
 }
 
@@ -152,12 +164,15 @@ export async function confirmInterviewSlot(
 ): Promise<void> {
   const interviewerEmail = await getInterviewerEmail();
 
-  const slot = await prisma.interviewSlot.findUnique({
-    where: { id: slotId },
-    include: { application: { include: { job: true } } },
-  });
+  const { data: slotRaw, error: slotError } = await supabase
+    .from("interview_slots")
+    .select("*, application:applications(*, job:jobs(*))")
+    .eq("id", slotId)
+    .single();
 
-  if (!slot) throw new SlotConfirmError("Slot not found");
+  if (slotError) throw new SlotConfirmError("Slot not found");
+  const slot = parseInterviewSlotRow(slotRaw as Record<string, unknown>);
+
   if (slot.applicationId !== applicationId) throw new SlotConfirmError("Slot does not belong to this application");
   if (slot.status !== "HELD") throw new SlotConfirmError("Slot is no longer available");
 
@@ -165,35 +180,37 @@ export async function confirmInterviewSlot(
   if (slot.holdExpiresAt < now) throw new SlotConfirmError("Slot has expired");
 
   // Release all other HELD slots for this application
-  const otherSlots = await prisma.interviewSlot.findMany({
-    where: { applicationId, status: "HELD", id: { not: slotId } },
-  });
+  const { data: otherSlotsRaw } = await supabase
+    .from("interview_slots")
+    .select("id, googleEventId, interviewerEmail")
+    .eq("applicationId", applicationId)
+    .eq("status", "HELD")
+    .neq("id", slotId);
 
   const calendar = getCalendarService();
 
   await Promise.all(
-    otherSlots.map((s) =>
+    (otherSlotsRaw ?? []).map((s: Record<string, unknown>) =>
       s.googleEventId
-        ? calendar.releaseSlot(interviewerEmail, s.googleEventId).catch(() => null)
+        ? calendar.releaseSlot(s.interviewerEmail as string, s.googleEventId as string).catch(() => null)
         : Promise.resolve()
     )
   );
 
-  await prisma.interviewSlot.updateMany({
-    where: { applicationId, status: "HELD", id: { not: slotId } },
-    data: { status: "RELEASED", releasedAt: now },
-  });
+  await supabase
+    .from("interview_slots")
+    .update({ status: "RELEASED", releasedAt: now.toISOString(), updatedAt: now.toISOString() })
+    .eq("applicationId", applicationId)
+    .eq("status", "HELD")
+    .neq("id", slotId);
 
-  // Confirm the chosen slot
-  await prisma.interviewSlot.update({
-    where: { id: slotId },
-    data: { status: "CONFIRMED", confirmedAt: now },
-  });
+  await supabase
+    .from("interview_slots")
+    .update({ status: "CONFIRMED", confirmedAt: now.toISOString(), updatedAt: now.toISOString() })
+    .eq("id", slotId);
 
-  // If using real Google Calendar, confirm the event and send invites
   let meetLink: string | undefined;
   if (slot.googleEventId && calendar instanceof GoogleCalendarService) {
-    // Add Fireflies bot only when real notetaker is configured
     const additionalAttendees =
       process.env.USE_MOCK_NOTETAKER !== "true"
         ? ["fireflies.ai@fireflies.ai"]
@@ -203,53 +220,50 @@ export async function confirmInterviewSlot(
       .confirmEvent(
         interviewerEmail,
         slot.googleEventId,
-        slot.application.candidateName,
+        slot.application!.candidateName,
         additionalAttendees
       )
       .catch(() => undefined);
   }
 
-  // Create Interview record — store meetingUrl (Google Meet hangoutLink) so the
-  // Fireflies webhook handler can match transcripts by URL when firefliesMeetingId
-  // is null (Approach 3 linkage strategy, see docs/coding-reference/fireflies-api-reference.md)
-  await prisma.interview.create({
-    data: {
-      applicationId,
+  const nowIso = now.toISOString();
+
+  await supabase.from("interviews").insert({
+    id: crypto.randomUUID(),
+    applicationId,
+    slotId,
+    status: "SCHEDULED",
+    scheduledAt: slot.startTime.toISOString(),
+    ...(meetLink ? { meetingUrl: meetLink } : {}),
+    createdAt: nowIso,
+    updatedAt: nowIso,
+  });
+
+  await supabase
+    .from("applications")
+    .update({ status: "INTERVIEWING", updatedAt: nowIso })
+    .eq("id", applicationId);
+
+  await supabase.from("events_log").insert({
+    id: crypto.randomUUID(),
+    applicationId,
+    eventType: "SLOT_CONFIRMED",
+    payload: {
       slotId,
-      status: "SCHEDULED",
-      scheduledAt: slot.startTime,
-      ...(meetLink ? { meetingUrl: meetLink } : {}),
+      startTime: slot.startTime.toISOString(),
+      interviewerEmail,
     },
+    idempotencyKey: `slot-confirmed:${slotId}`,
+    createdAt: nowIso,
   });
 
-  // Advance application status
-  await prisma.application.update({
-    where: { id: applicationId },
-    data: { status: "INTERVIEWING" },
-  });
-
-  // Log event
-  await prisma.eventsLog.create({
-    data: {
-      applicationId,
-      eventType: "SLOT_CONFIRMED",
-      payload: {
-        slotId,
-        startTime: slot.startTime.toISOString(),
-        interviewerEmail,
-      },
-      idempotencyKey: `slot-confirmed:${slotId}`,
-    },
-  });
-
-  // Confirmation email to candidate
-  const app = slot.application;
+  const app = slot.application!;
   await getEmailService().send({
     to: app.candidateEmail,
-    subject: `Interview confirmed — ${app.job.title}`,
+    subject: `Interview confirmed — ${app.job!.title}`,
     html: buildConfirmationHtml(
       app.candidateName,
-      app.job.title,
+      app.job!.title,
       slot.startTime,
       slot.endTime
     ),

@@ -1,41 +1,34 @@
-// lib/services/notetakerService.ts
-
-import { Prisma } from "@prisma/client";
-import { prisma } from "@/lib/prisma";
+import { supabase } from "@/lib/supabase";
+import { parseInterviewRow } from "@/lib/types/database";
 import { getNotetakerService } from "@/lib/integrations/notetaker";
 
 export class InterviewNotFoundError extends Error {}
 export class TranscriptAlreadyFetchedError extends Error {}
 
-/**
- * Look up the Interview record for a given applicationId.
- * Used by the simulate-interview route so it never touches Prisma directly.
- */
 export async function findInterviewForApplication(applicationId: string) {
-  return prisma.interview.findFirst({
-    where: { applicationId },
-  });
+  const { data, error } = await supabase
+    .from("interviews")
+    .select("*")
+    .eq("applicationId", applicationId)
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  return data ? parseInterviewRow(data as Record<string, unknown>) : null;
 }
 
-/**
- * Fetch transcript (mock or real), store it, and advance both Interview and
- * Application statuses. All three DB writes are in a single transaction.
- *
- * Safe to call concurrently — a duplicate idempotencyKey (P2002) is caught
- * and treated as a known-safe duplicate, not an error.
- */
 export async function processTranscript(
   interviewId: string,
   source: "fireflies" | "mock"
 ): Promise<void> {
-  const interview = await prisma.interview.findUnique({
-    where: { id: interviewId },
-    include: {
-      application: { select: { id: true, candidateName: true } },
-    },
-  });
+  const { data: interviewRaw, error: fetchError } = await supabase
+    .from("interviews")
+    .select("*, application:applications(id, candidateName)")
+    .eq("id", interviewId)
+    .single();
 
-  if (!interview) throw new InterviewNotFoundError("Interview not found");
+  if (fetchError) throw new InterviewNotFoundError("Interview not found");
+  const interview = parseInterviewRow(interviewRaw as Record<string, unknown>);
+
   if (interview.transcriptFetchedAt) {
     throw new TranscriptAlreadyFetchedError("Transcript already fetched for this interview");
   }
@@ -43,44 +36,47 @@ export async function processTranscript(
   const notetaker = getNotetakerService();
   const transcript = await notetaker.fetchTranscript(
     interview.firefliesMeetingId ?? interviewId,
-    { candidateName: interview.application.candidateName }
+    { candidateName: interview.application!.candidateName }
   );
 
   const transcriptText = transcript.sentences
-    .map((s) => `${s.speaker_name}: ${s.text}`)
+    .map((s: { speaker_name: string; text: string }) => `${s.speaker_name}: ${s.text}`)
     .join("\n\n");
 
-  try {
-    await prisma.$transaction([
-      prisma.interview.update({
-        where: { id: interviewId },
-        data: {
-          transcriptRaw: transcript as object,
-          transcriptText,
-          transcriptSummary: transcript.summary?.overview ?? "",
-          transcriptFetchedAt: new Date(),
-          completedAt: new Date(),
-          status: "COMPLETED",
-        },
-      }),
-      prisma.application.update({
-        where: { id: interview.application.id },
-        data: { status: "POST_INTERVIEW" },
-      }),
-      prisma.eventsLog.create({
-        data: {
-          applicationId: interview.application.id,
-          eventType: "INTERVIEW_COMPLETED",
-          payload: { interviewId, source },
-          idempotencyKey: `interview_completed_${interviewId}`,
-        },
-      }),
-    ]);
-  } catch (err) {
-    // P2002 = unique constraint on idempotencyKey — concurrent duplicate, safe to ignore
-    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
-      return;
-    }
-    throw err;
+  const nowIso = new Date().toISOString();
+
+  // Sequential writes — idempotency enforced by unique constraint on idempotencyKey
+  const { error: intErr } = await supabase
+    .from("interviews")
+    .update({
+      transcriptRaw: transcript as object,
+      transcriptText,
+      transcriptSummary: transcript.summary?.overview ?? "",
+      transcriptFetchedAt: nowIso,
+      completedAt: nowIso,
+      status: "COMPLETED",
+      updatedAt: nowIso,
+    })
+    .eq("id", interviewId);
+
+  if (intErr) throw intErr;
+
+  await supabase
+    .from("applications")
+    .update({ status: "POST_INTERVIEW", updatedAt: nowIso })
+    .eq("id", interview.application!.id);
+
+  const { error: logError } = await supabase.from("events_log").insert({
+    id: crypto.randomUUID(),
+    applicationId: interview.application!.id,
+    eventType: "INTERVIEW_COMPLETED",
+    payload: { interviewId, source },
+    idempotencyKey: `interview_completed_${interviewId}`,
+    createdAt: nowIso,
+  });
+
+  // 23505 = unique_violation — idempotent duplicate, safe to ignore
+  if (logError && logError.code !== "23505") {
+    throw logError;
   }
 }
