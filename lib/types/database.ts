@@ -172,6 +172,32 @@ export interface ScheduledNudge {
   createdAt: Date;
 }
 
+export interface SlackOnboarding {
+  id:                 string;
+  applicationId:      string;
+  inviteEmailSentAt:  Date | null;
+  slackUserId:        string | null;
+  joinedAt:           Date | null;
+  welcomeDmSentAt:    Date | null;
+  hrNotifiedAt:       Date | null;
+  createdAt:          Date;
+  updatedAt:          Date;
+}
+
+export function parseSlackOnboardingRow(row: Record<string, unknown>): SlackOnboarding {
+  return {
+    id:                row.id as string,
+    applicationId:     row.applicationId as string,
+    inviteEmailSentAt: dn(row.inviteEmailSentAt as string | null),
+    slackUserId:       (row.slackUserId as string | null) ?? null,
+    joinedAt:          dn(row.joinedAt as string | null),
+    welcomeDmSentAt:   dn(row.welcomeDmSentAt as string | null),
+    hrNotifiedAt:      dn(row.hrNotifiedAt as string | null),
+    createdAt:         d(row.createdAt as string),
+    updatedAt:         d(row.updatedAt as string),
+  };
+}
+
 export interface Offer {
   id: string;
   applicationId: string;
