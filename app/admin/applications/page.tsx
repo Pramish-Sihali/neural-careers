@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import { prisma } from "@/lib/prisma";
 import { AdminPipelineClient } from "@/components/admin/AdminPipelineClient";
 import type { NewApplicationRow } from "@/components/admin/NewApplicationsTable";
