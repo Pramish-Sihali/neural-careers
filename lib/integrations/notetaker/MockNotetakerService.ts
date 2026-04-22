@@ -1,6 +1,6 @@
 // lib/integrations/notetaker/MockNotetakerService.ts
 
-import type { INotetakerService, FirefliesTranscript, NotetakerContext } from "./INotetakerService";
+import type { INotetakerService, FirefliesTranscript, NotetakerContext, AddToMeetingResult } from "./INotetakerService";
 
 export class MockNotetakerService implements INotetakerService {
   async fetchTranscript(
@@ -28,5 +28,9 @@ export class MockNotetakerService implements INotetakerService {
         keywords: ["TypeScript", "React", "microservices", "team lead", "feature flags"],
       },
     };
+  }
+
+  async addToMeeting(_meetingUrl: string): Promise<AddToMeetingResult> {
+    return { success: true, message: "Mock: bot sent to meeting" };
   }
 }

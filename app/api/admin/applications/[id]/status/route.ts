@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth/requireAdmin";
 import { supabase } from "@/lib/supabase";
 import type { ApplicationStatus } from "@/lib/types/database";
+import { errorResponse, now } from "@/lib/utils/apiHelpers";
 
 const VALID_STATUSES = new Set<ApplicationStatus>([
   "APPLIED", "SCREENED", "SHORTLISTED", "INTERVIEWING",
@@ -20,16 +21,16 @@ export async function PATCH(
   const body = await req.json() as { status?: unknown };
 
   if (!body.status || !VALID_STATUSES.has(body.status as ApplicationStatus)) {
-    return NextResponse.json({ error: "Invalid status" }, { status: 422 });
+    return errorResponse("Invalid status", 422);
   }
 
   const { data, error } = await supabase
     .from("applications")
-    .update({ status: body.status, updatedAt: new Date().toISOString() })
+    .update({ status: body.status, updatedAt: now() })
     .eq("id", id)
     .select("status")
     .single();
 
-  if (error) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  if (error) return errorResponse("Not found", 404);
   return NextResponse.json({ status: (data as Record<string, unknown>).status });
 }

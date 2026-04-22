@@ -1,5 +1,6 @@
 import { supabase } from "@/lib/supabase";
 import { parseApplicationRow } from "@/lib/types/database";
+import type { Application } from "@/lib/types/database";
 import { screenResume } from "@/lib/ai/prompts/screenResume";
 import { enrichCandidate } from "@/lib/services/enrichmentService";
 
@@ -10,7 +11,9 @@ export class AlreadyScreenedError extends Error {
   }
 }
 
-export async function screenApplication(applicationId: string) {
+// ── Private helpers ──────────────────────────────────────────────────────────
+
+async function fetchApplicationForScreening(applicationId: string) {
   const { data: raw, error } = await supabase
     .from("applications")
     .select("*, job:jobs(*)")
@@ -18,21 +21,22 @@ export async function screenApplication(applicationId: string) {
     .single();
 
   if (error) throw new Error(`Application ${applicationId} not found`);
+  return parseApplicationRow(raw as Record<string, unknown>);
+}
 
-  const application = parseApplicationRow(raw as Record<string, unknown>);
-
-  if (application.status !== "APPLIED") throw new AlreadyScreenedError();
-
-  const job = application.job!;
-  const jobDescription = [
+function buildJobDescription(job: NonNullable<Application["job"]>): string {
+  return [
     job.description,
     `Requirements: ${job.requirements}`,
     `Responsibilities: ${job.responsibilities}`,
   ].join("\n\n");
+}
 
-  const result = await screenResume(jobDescription, application.resumeText);
-
-  // Optimistic lock: only update if version hasn't changed
+async function persistScreeningResult(
+  applicationId: string,
+  currentVersion: number,
+  result: Awaited<ReturnType<typeof screenResume>>
+) {
   const { data: updated, error: updateError } = await supabase
     .from("applications")
     .update({
@@ -40,24 +44,38 @@ export async function screenApplication(applicationId: string) {
       fitScore: result.fitScore,
       screeningSummary: result,
       screenedAt: new Date().toISOString(),
-      version: application.version + 1,
+      version: currentVersion + 1,
       updatedAt: new Date().toISOString(),
     })
     .eq("id", applicationId)
-    .eq("version", application.version)
+    .eq("version", currentVersion)
     .select();
 
   if (updateError) throw updateError;
-  if (!updated || updated.length === 0) {
-    throw new AlreadyScreenedError();
-  }
+  if (!updated || updated.length === 0) throw new AlreadyScreenedError();
+}
 
-  // Fire async enrichment for shortlist candidates — don't await
-  if (result.recommendation === "SHORTLIST") {
+function triggerEnrichmentIfNeeded(applicationId: string, recommendation: string) {
+  if (recommendation === "SHORTLIST") {
     enrichCandidate(applicationId).catch((err) =>
       console.error(`Enrichment failed for ${applicationId}:`, err)
     );
   }
+}
+
+// ── Public API ───────────────────────────────────────────────────────────────
+
+export async function screenApplication(applicationId: string) {
+  const application = await fetchApplicationForScreening(applicationId);
+
+  if (application.status !== "APPLIED") throw new AlreadyScreenedError();
+
+  const jobDescription = buildJobDescription(application.job!);
+  const result = await screenResume(jobDescription, application.resumeText);
+
+  await persistScreeningResult(applicationId, application.version, result);
+
+  triggerEnrichmentIfNeeded(applicationId, result.recommendation);
 
   return result;
 }

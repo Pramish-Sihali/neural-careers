@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth/requireAdmin";
 import { screenApplication, AlreadyScreenedError } from "@/lib/services/screeningService";
+import { errorResponse } from "@/lib/utils/apiHelpers";
 
 export async function POST(
   req: NextRequest,
@@ -16,9 +17,9 @@ export async function POST(
     return NextResponse.json(result);
   } catch (err) {
     if (err instanceof AlreadyScreenedError) {
-      return NextResponse.json({ error: err.message }, { status: 409 });
+      return errorResponse(err.message, 409);
     }
     console.error(`Screen error for ${id}:`, err);
-    return NextResponse.json({ error: "Screening failed" }, { status: 500 });
+    return errorResponse("Screening failed", 500);
   }
 }

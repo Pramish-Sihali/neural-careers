@@ -1,8 +1,17 @@
 // lib/integrations/notetaker/FirefliesNotetakerService.ts
 
-import type { INotetakerService, FirefliesTranscript, NotetakerContext } from "./INotetakerService";
+import type { INotetakerService, FirefliesTranscript, NotetakerContext, AddToMeetingResult } from "./INotetakerService";
 
 const FIREFLIES_API = "https://api.fireflies.ai/graphql";
+
+const ADD_TO_LIVE_MEETING_MUTATION = `
+  mutation AddToLiveMeeting($url: String!) {
+    addToLiveMeeting(meeting_link: $url) {
+      success
+      message
+    }
+  }
+`;
 
 const TRANSCRIPT_QUERY = `
   query GetTranscript($meetingId: String!) {
@@ -59,5 +68,46 @@ export class FirefliesNotetakerService implements INotetakerService {
     }
 
     return data.transcript;
+  }
+
+  async addToMeeting(meetingUrl: string): Promise<AddToMeetingResult> {
+    const apiKey = process.env.FIREFLIES_API_KEY;
+    if (!apiKey) {
+      return { success: false, message: "Fireflies API key not configured" };
+    }
+
+    const res = await fetch(FIREFLIES_API, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        query: ADD_TO_LIVE_MEETING_MUTATION,
+        variables: { url: meetingUrl },
+      }),
+    });
+
+    if (!res.ok) {
+      return {
+        success: false,
+        message: `Fireflies API error: ${res.status} ${res.statusText}`,
+      };
+    }
+
+    const { data, errors } = (await res.json()) as {
+      data?: { addToLiveMeeting: { success: boolean; message: string } };
+      errors?: Array<{ message: string }>;
+    };
+
+    if (errors?.length) {
+      return { success: false, message: errors[0].message };
+    }
+
+    if (!data?.addToLiveMeeting) {
+      return { success: false, message: "Unexpected response from Fireflies API" };
+    }
+
+    return data.addToLiveMeeting;
   }
 }

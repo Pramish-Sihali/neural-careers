@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth/requireAdmin";
 import { supabase } from "@/lib/supabase";
 import { enrichCandidate } from "@/lib/services/enrichmentService";
+import { errorResponse, now } from "@/lib/utils/apiHelpers";
 
 export async function POST(
   req: NextRequest,
@@ -18,24 +19,21 @@ export async function POST(
     .eq("id", id)
     .single();
 
-  if (error || !data) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  if (error || !data) return errorResponse("Not found", 404);
   const app = data as Record<string, unknown>;
   if (app.status !== "SCREENED") {
-    return NextResponse.json(
-      { error: "Application must be SCREENED before shortlisting" },
-      { status: 409 }
-    );
+    return errorResponse("Application must be SCREENED before shortlisting", 409);
   }
 
-  const nowIso = new Date().toISOString();
+  const ts = now();
   const { data: updated, error: updateError } = await supabase
     .from("applications")
-    .update({ status: "SHORTLISTED", shortlistedAt: nowIso, updatedAt: nowIso })
+    .update({ status: "SHORTLISTED", shortlistedAt: ts, updatedAt: ts })
     .eq("id", id)
     .select("status")
     .single();
 
-  if (updateError) return NextResponse.json({ error: "Update failed" }, { status: 500 });
+  if (updateError) return errorResponse("Update failed", 500);
 
   enrichCandidate(id).catch((err) =>
     console.error(`Enrichment failed for ${id}:`, err)

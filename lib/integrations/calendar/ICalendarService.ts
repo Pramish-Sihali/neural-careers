@@ -28,4 +28,16 @@ export interface ICalendarService {
 
   /** Delete a hold or confirmed event (sends cancellation to attendees). */
   releaseSlot(interviewerEmail: string, googleEventId: string): Promise<void>;
+
+  /**
+   * Promote a tentative hold to a confirmed event: update title, set status to confirmed,
+   * send invites to all attendees, and optionally add extra attendees (e.g. Fireflies bot).
+   * Returns the Google Meet URL, or undefined if unavailable.
+   */
+  confirmEvent(
+    interviewerEmail: string,
+    googleEventId: string,
+    candidateName: string,
+    additionalAttendees?: string[]
+  ): Promise<string | undefined>;
 }

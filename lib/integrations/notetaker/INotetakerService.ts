@@ -24,6 +24,11 @@ export interface NotetakerContext {
   candidateName: string;
 }
 
+export interface AddToMeetingResult {
+  success: boolean;
+  message: string;
+}
+
 export interface INotetakerService {
   /**
    * Fetch transcript for a meeting.
@@ -34,4 +39,11 @@ export interface INotetakerService {
     meetingId: string,
     context?: NotetakerContext
   ): Promise<FirefliesTranscript>;
+
+  /**
+   * Send the Fireflies bot into an already-running meeting.
+   * The meeting must be active and have at least one participant.
+   * Returns { success: false, message } when Fireflies rejects the request.
+   */
+  addToMeeting(meetingUrl: string): Promise<AddToMeetingResult>;
 }

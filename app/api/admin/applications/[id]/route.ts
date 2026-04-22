@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth/requireAdmin";
 import { supabase } from "@/lib/supabase";
 import { parseApplicationRow } from "@/lib/types/database";
+import { errorResponse } from "@/lib/utils/apiHelpers";
 
 export async function GET(
   req: NextRequest,
@@ -17,6 +18,6 @@ export async function GET(
     .eq("id", id)
     .single();
 
-  if (error || !data) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  if (error || !data) return errorResponse("Not found", 404);
   return NextResponse.json(parseApplicationRow(data as Record<string, unknown>));
 }

@@ -7,6 +7,7 @@ import { parseApplicationRow } from "@/lib/types/database";
 import { StatusBadge } from "@/components/admin/StatusBadge";
 import { ScreenActions } from "@/components/admin/ScreenActions";
 import { SimulateInterviewButton } from "@/components/admin/SimulateInterviewButton";
+import { SendBotButton } from "@/components/admin/SendBotButton";
 
 async function getApplication(id: string) {
   const { data, error } = await supabase
@@ -146,6 +147,13 @@ export default async function AdminApplicationDetailPage({
         {app.interview && (
           <section className="rounded-lg border p-6 space-y-4">
             <h2 className="font-semibold">Interview</h2>
+
+            {app.interview.status !== "COMPLETED" && (
+              <SendBotButton
+                applicationId={app.id}
+                interviewStatus={app.interview.status}
+              />
+            )}
 
             {app.interview.status === "SCHEDULED" && (
               <SimulateInterviewButton applicationId={app.id} />

@@ -1,7 +1,6 @@
 import { supabase } from "@/lib/supabase";
 import { parseApplicationRow, parseInterviewSlotRow } from "@/lib/types/database";
 import { getCalendarService } from "@/lib/integrations/calendar";
-import { GoogleCalendarService } from "@/lib/integrations/calendar/GoogleCalendarService";
 import { signScheduleToken } from "@/lib/auth/scheduleToken";
 import { getEmailService } from "@/lib/integrations/email";
 import { renderInterviewInviteEmail } from "@/emails/InterviewInvite";
@@ -210,7 +209,7 @@ export async function confirmInterviewSlot(
     .eq("id", slotId);
 
   let meetLink: string | undefined;
-  if (slot.googleEventId && calendar instanceof GoogleCalendarService) {
+  if (slot.googleEventId) {
     const additionalAttendees =
       process.env.USE_MOCK_NOTETAKER !== "true"
         ? ["fireflies.ai@fireflies.ai"]

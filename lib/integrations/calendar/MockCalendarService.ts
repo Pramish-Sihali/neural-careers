@@ -50,4 +50,13 @@ export class MockCalendarService implements ICalendarService {
   ): Promise<void> {
     // no-op in mock
   }
+
+  async confirmEvent(
+    _interviewerEmail: string,
+    googleEventId: string,
+    _candidateName: string,
+    _additionalAttendees: string[] = []
+  ): Promise<string | undefined> {
+    return `https://meet.google.com/mock-${googleEventId.slice(0, 8)}`;
+  }
 }
