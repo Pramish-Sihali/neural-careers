@@ -23,7 +23,7 @@ export async function callGeminiWithJson<T>(
   schema: ZodSchema<T>,
   options: CallOptions = {}
 ): Promise<T> {
-  const { modelId = "gemini-2.5-flash", maxRetries = 4, temperature = 0.2 } = options;
+  const { modelId = "gemini-2.5-pro", maxRetries = 4, temperature = 0.2 } = options;
 
   const model = getModel(modelId);
   const generationConfig = {

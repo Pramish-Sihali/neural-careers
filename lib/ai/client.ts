@@ -8,7 +8,7 @@ export const gemini =
 
 if (process.env.NODE_ENV !== "production") globalForGemini.gemini = gemini;
 
-export function getModel(modelId = "gemini-2.5-flash") {
+export function getModel(modelId = "gemini-2.5-pro") {
   return gemini.getGenerativeModel({ model: modelId });
 }
 
