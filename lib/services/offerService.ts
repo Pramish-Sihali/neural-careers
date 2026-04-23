@@ -27,6 +27,7 @@ import { renderOfferSignedEmail } from "@/emails/OfferSigned";
 import { validateOfferTransition } from "@/lib/domain/offerStateMachine";
 import { generateId, now } from "@/lib/utils/apiHelpers";
 import type { Offer, OfferSignature } from "@/lib/types/database";
+import { sendOnboardingInvite } from "./onboardingService";
 
 export class OfferError extends Error {}
 export class OfferNotFoundError extends OfferError {}
@@ -279,6 +280,10 @@ export async function signOffer(input: SignOfferInput): Promise<{
     payload: { offerId: input.offerId, signatureId: signature.id },
     idempotencyKey: `offer-signed:${input.offerId}`,
     createdAt: nowIso,
+  });
+
+  await sendOnboardingInvite(existing.applicationId).catch((err) => {
+    console.error("Slack onboarding invite failed:", err);
   });
 
   return { offer: updated, signature, alreadySigned: false };

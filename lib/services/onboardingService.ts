@@ -87,9 +87,20 @@ export async function sendOnboardingInvite(
     return { sent: false, alreadySent: true };
   }
 
-  // For demo: start date is not tracked yet (Phase 05's offers table will hold it).
-  // Use today + 14 days as a placeholder until Phase 05 lands.
-  const startDateIso = new Date(Date.now() + 14 * 86_400_000).toISOString().slice(0, 10);
+  // Prefer the real start date from the latest signed offer; fall back to today + 14 days
+  // when there is no signed offer yet (e.g., admin manually sends an invite early).
+  const { data: offerRow } = await supabase
+    .from("offers")
+    .select("*")
+    .eq("applicationId", applicationId)
+    .eq("status", "SIGNED")
+    .order("updatedAt", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  const startDateIso = offerRow
+    ? new Date(offerRow.startDate as string).toISOString().slice(0, 10)
+    : new Date(Date.now() + 14 * 86_400_000).toISOString().slice(0, 10);
 
   const { subject, html } = await buildInvitePayload({
     candidateName:  app.candidateName,
