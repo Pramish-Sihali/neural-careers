@@ -48,8 +48,7 @@ playwright-report/
 # claude code
 .claude/
 
-# local dev scripts — never commit (ignore contents, but allow specific runtime entry points)
-/scripts/*
-!/scripts/slack-socket-worker.mts
+# local dev scripts — never commit
+/scripts/
 
 .vercel
