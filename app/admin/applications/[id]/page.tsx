@@ -3,12 +3,13 @@ import Link from "next/link";
 import { ArrowLeft, FileText, ExternalLink } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { createClient } from "@supabase/supabase-js";
-import { parseApplicationRow } from "@/lib/types/database";
+import { parseApplicationRow, parseSlackOnboardingRow } from "@/lib/types/database";
 import { StatusBadge } from "@/components/admin/StatusBadge";
 import { ScreenActions } from "@/components/admin/ScreenActions";
 import { SimulateInterviewButton } from "@/components/admin/SimulateInterviewButton";
 import { SendBotButton } from "@/components/admin/SendBotButton";
 import { GenerateOfferButton } from "@/components/admin/GenerateOfferButton";
+import { SlackStatus } from "@/components/admin/SlackStatus";
 import { findLatestOfferForApplication } from "@/lib/repositories/offerRepo";
 
 async function getApplication(id: string) {
@@ -49,6 +50,12 @@ export default async function AdminApplicationDetailPage({
 
   const resumeSignedUrl = await getResumeSignedUrl(app.resumeUrl);
   const latestOffer = await findLatestOfferForApplication(app.id);
+
+  const { data: slackOnboardingRow } = await supabase
+    .from("slack_onboardings").select("*").eq("applicationId", id).maybeSingle();
+  const slackOnboarding = slackOnboardingRow
+    ? parseSlackOnboardingRow(slackOnboardingRow as Record<string, unknown>)
+    : null;
 
   const screening = app.screeningSummary as {
     strengths?: string[];
@@ -329,6 +336,16 @@ export default async function AdminApplicationDetailPage({
             {app.resumeText}
           </pre>
         </section>
+
+        {/* Slack onboarding */}
+        <SlackStatus
+          applicationId={app.id}
+          inviteEmailSentAt={slackOnboarding?.inviteEmailSentAt?.toISOString() ?? null}
+          joinedAt={slackOnboarding?.joinedAt?.toISOString() ?? null}
+          welcomeDmSentAt={slackOnboarding?.welcomeDmSentAt?.toISOString() ?? null}
+          hrNotifiedAt={slackOnboarding?.hrNotifiedAt?.toISOString() ?? null}
+          slackUserId={slackOnboarding?.slackUserId ?? null}
+        />
       </div>
     </main>
   );
