@@ -82,8 +82,10 @@ export default async function AdminApplicationsPage({ searchParams }: Props) {
 
   const useMock = process.env.USE_MOCK_CALENDAR === "true";
 
+  const totalApps = newApps.length + pipeline.length;
+
   return (
-    <main className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8 space-y-6">
+    <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-10 sm:px-6 lg:px-8 space-y-6">
       {!useMock && (
         <div
           className={`rounded-lg px-4 py-3 text-sm flex items-center justify-between ${
@@ -112,10 +114,9 @@ export default async function AdminApplicationsPage({ searchParams }: Props) {
       )}
 
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">Candidate Pipeline</h1>
+        <h1 className="text-2xl font-bold tracking-tight">Welcome back</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          {newApps.length + pipeline.length} total application
-          {newApps.length + pipeline.length !== 1 ? "s" : ""}
+          {totalApps} total application{totalApps !== 1 ? "s" : ""} in the pipeline.
         </p>
       </div>
 

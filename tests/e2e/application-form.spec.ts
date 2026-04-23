@@ -249,7 +249,9 @@ test.describe("Admin panel", () => {
     page,
   }) => {
     await page.goto("/admin/applications");
-    await expect(page.locator("h1")).toContainText("Candidate Pipeline");
+    // Admin home heading changed from "Candidate Pipeline" to "Welcome back"
+    // as part of the sidebar/home reorganization.
+    await expect(page.locator("h1")).toContainText("Welcome back");
     // At least one row (from previous happy-path test or seeded data)
     await expect(page.locator("table tbody tr").first()).toBeVisible({
       timeout: 10_000,
