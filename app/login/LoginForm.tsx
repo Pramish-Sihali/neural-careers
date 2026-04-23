@@ -1,6 +1,5 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,7 +8,6 @@ import { Label } from "@/components/ui/label";
 const MOCK_COOKIE = "mock_admin_session";
 
 export function LoginForm({ redirectTo }: { redirectTo: string }) {
-  const router = useRouter();
   const [email, setEmail] = useState("admin@niural.com");
   const [password, setPassword] = useState("demo");
   const [submitting, setSubmitting] = useState(false);
@@ -18,11 +16,12 @@ export function LoginForm({ redirectTo }: { redirectTo: string }) {
     e.preventDefault();
     if (!email || !password) return;
     setSubmitting(true);
-    // Mock session — any input is accepted. Cookie is readable by the admin
-    // middleware so it can gate /admin/* routes.
     document.cookie = `${MOCK_COOKIE}=1; path=/; max-age=${60 * 60 * 8}`;
-    router.push(redirectTo);
-    router.refresh();
+    // Hard navigation so the new cookie is sent on the next request and
+    // middleware re-runs. router.push would use the App Router cache and can
+    // hit a stale RSC response captured before the cookie was set, forcing
+    // the user to refresh manually.
+    window.location.assign(redirectTo);
   }
 
   return (
