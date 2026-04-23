@@ -85,7 +85,7 @@ export function JobCard({
           <Link href={`/jobs/${id}`}>View details</Link>
         </Button>
         <Button asChild size="sm" className="flex-1">
-          <Link href={`/apply/${id}`}>Apply now</Link>
+          <Link href={`/jobs/${id}#apply`}>Apply now</Link>
         </Button>
       </CardFooter>
     </Card>

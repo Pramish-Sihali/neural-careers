@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 
-const MAX_FILE_BYTES = 5 * 1024 * 1024; // 5 MB client-side guard
+const MAX_FILE_BYTES = 5 * 1024 * 1024;
 
 interface ApplicationFormProps {
   jobId: string;
@@ -105,7 +105,7 @@ export function ApplicationForm({ jobId, jobTitle }: ApplicationFormProps) {
   const isSubmitting = formState.status === "submitting";
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-6">
+    <form onSubmit={handleSubmit} className="space-y-10">
       {formState.status === "error" && (
         <div
           role="alert"
@@ -115,7 +115,10 @@ export function ApplicationForm({ jobId, jobTitle }: ApplicationFormProps) {
         </div>
       )}
 
-      <div className="grid gap-6 sm:grid-cols-2">
+      <FormSection
+        title="Personal information"
+        description="Tell us who you are. Required fields are marked with an asterisk."
+      >
         <div className="space-y-1.5">
           <Label htmlFor="name">
             Full name <span className="text-destructive">*</span>
@@ -173,7 +176,12 @@ export function ApplicationForm({ jobId, jobTitle }: ApplicationFormProps) {
             placeholder="3"
           />
         </div>
+      </FormSection>
 
+      <FormSection
+        title="Links"
+        description="Optional — helps us understand your work."
+      >
         <div className="space-y-1.5">
           <Label htmlFor="linkedinUrl">LinkedIn URL</Label>
           <Input
@@ -195,52 +203,94 @@ export function ApplicationForm({ jobId, jobTitle }: ApplicationFormProps) {
             placeholder="your-github-handle"
           />
         </div>
-      </div>
+      </FormSection>
 
-      <div className="space-y-1.5">
-        <Label htmlFor="coverLetter">Cover letter</Label>
-        <Textarea
-          id="coverLetter"
-          name="coverLetter"
-          rows={5}
-          disabled={isSubmitting}
-          placeholder="Tell us why you're a great fit for this role…"
-          className="resize-y"
-        />
-      </div>
-
-      <div className="space-y-1.5">
-        <Label htmlFor="resume">
-          Resume <span className="text-destructive">*</span>
-        </Label>
-        <Input
-          id="resume"
-          name="resume"
-          type="file"
-          ref={fileRef}
-          accept=".pdf,.doc,.docx"
-          required
-          disabled={isSubmitting}
-          onChange={handleFileChange}
-          className="cursor-pointer file:mr-3 file:cursor-pointer file:rounded file:border-0 file:bg-muted file:px-3 file:py-1 file:text-sm"
-        />
-        {fileError ? (
-          <p className="text-xs text-destructive">{fileError}</p>
-        ) : (
-          <p className="text-xs text-muted-foreground">
-            PDF, DOC, or DOCX · max 5 MB
-          </p>
-        )}
-      </div>
-
-      <Button
-        type="submit"
-        disabled={isSubmitting || !!fileError}
-        className="w-full sm:w-auto"
+      <FormSection
+        title="Resume & cover letter"
+        description="PDF, DOC, or DOCX up to 5 MB."
+        fullWidth
       >
-        {isSubmitting ? "Submitting…" : "Submit application"}
-      </Button>
+        <div className="space-y-1.5">
+          <Label htmlFor="resume">
+            Resume <span className="text-destructive">*</span>
+          </Label>
+          <Input
+            id="resume"
+            name="resume"
+            type="file"
+            ref={fileRef}
+            accept=".pdf,.doc,.docx"
+            required
+            disabled={isSubmitting}
+            onChange={handleFileChange}
+            className="cursor-pointer file:mr-3 file:cursor-pointer file:rounded file:border-0 file:bg-muted file:px-3 file:py-1 file:text-sm"
+          />
+          {fileError ? (
+            <p className="text-xs text-destructive">{fileError}</p>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              PDF, DOC, or DOCX · max 5 MB
+            </p>
+          )}
+        </div>
+
+        <div className="space-y-1.5">
+          <Label htmlFor="coverLetter">Cover letter</Label>
+          <Textarea
+            id="coverLetter"
+            name="coverLetter"
+            rows={5}
+            disabled={isSubmitting}
+            placeholder="Tell us why you're a great fit for this role…"
+            className="resize-y"
+          />
+        </div>
+      </FormSection>
+
+      <div className="flex flex-col items-start gap-3 border-t pt-6 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-xs text-muted-foreground">
+          By submitting this form you agree to our privacy policy.
+        </p>
+        <Button
+          type="submit"
+          disabled={isSubmitting || !!fileError}
+          className="w-full sm:w-auto"
+          size="lg"
+        >
+          {isSubmitting ? "Submitting…" : "Submit application"}
+        </Button>
+      </div>
     </form>
+  );
+}
+
+function FormSection({
+  title,
+  description,
+  fullWidth,
+  children,
+}: {
+  title: string;
+  description?: string;
+  fullWidth?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="space-y-4">
+      <header className="space-y-1">
+        <h2 className="text-base font-semibold tracking-tight text-foreground">{title}</h2>
+        {description && (
+          <p className="text-xs text-muted-foreground">{description}</p>
+        )}
+      </header>
+      <div
+        className={
+          fullWidth ? "space-y-4" : "grid gap-4 sm:grid-cols-2"
+        }
+      >
+        {children}
+      </div>
+    </section>
   );
 }
 

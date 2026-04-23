@@ -3,6 +3,7 @@ import Link from "next/link";
 import { MapPin, Briefcase, DollarSign, ArrowLeft, Calendar } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { ApplicationForm } from "@/components/candidate/ApplicationForm";
 
 interface JobDetail {
   id: string;
@@ -172,7 +173,7 @@ export default async function JobDetailPage({ params }: PageProps) {
               <p className="text-xs text-muted-foreground mt-0.5">{job.department}</p>
             </div>
             <Button asChild className="w-full">
-              <Link href={`/apply/${job.id}`}>Apply now</Link>
+              <Link href="#apply">Apply now</Link>
             </Button>
             <Button asChild variant="outline" className="w-full">
               <Link href="/jobs">View all roles</Link>
@@ -180,6 +181,25 @@ export default async function JobDetailPage({ params }: PageProps) {
           </div>
         </aside>
       </div>
+
+      <section
+        id="apply"
+        aria-labelledby="apply-heading"
+        className="mt-16 scroll-mt-24 rounded-lg border bg-card p-6 sm:p-10"
+      >
+        <header className="mb-8 border-b pb-6">
+          <h2
+            id="apply-heading"
+            className="text-2xl font-bold tracking-tight text-foreground"
+          >
+            Apply for {job.title}
+          </h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {job.department} · We usually reply within 5 business days.
+          </p>
+        </header>
+        <ApplicationForm jobId={job.id} jobTitle={job.title} />
+      </section>
     </main>
   );
 }

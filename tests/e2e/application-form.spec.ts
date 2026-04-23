@@ -22,7 +22,9 @@ const RESUME_FIXTURE = path.resolve(
 
 async function getFirstJobLink(page: Page): Promise<string> {
   await page.goto("/jobs");
-  const applyLink = page.locator('a[href*="/apply/"]').first();
+  // The "Apply now" link on each JobCard now points to /jobs/{id}#apply
+  // so the candidate lands on the inline form anchor within the detail page.
+  const applyLink = page.locator('a[href*="#apply"]').first();
   await expect(applyLink).toBeVisible({ timeout: 10_000 });
   const href = await applyLink.getAttribute("href");
   if (!href) throw new Error("No apply link found on /jobs page");
@@ -56,7 +58,8 @@ test.describe("Application form", () => {
   }) => {
     const applyHref = await getFirstJobLink(page);
     await page.goto(applyHref);
-    await expect(page.locator("h1")).toContainText("Apply for");
+    // New inline form heading lives at #apply-heading (h2 on the job detail page)
+    await expect(page.locator("#apply-heading")).toContainText("Apply for");
 
     await fillForm(page);
 
@@ -107,8 +110,8 @@ test.describe("Application form", () => {
     await expect(
       page.locator('.text-destructive[role="alert"]')
     ).toContainText("already applied", { timeout: 15_000 });
-    // Must NOT navigate away — stay on form
-    await expect(page.locator("h1")).toContainText("Apply for");
+    // Must NOT navigate away — stay on the inline apply section
+    await expect(page.locator("#apply-heading")).toContainText("Apply for");
   });
 
   test("oversized file: >5 MB → client-side error, form not submitted", async ({
