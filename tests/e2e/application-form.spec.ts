@@ -295,11 +295,10 @@ test.describe("Admin panel", () => {
       console.log("Resume upload was pending — viewer not expected");
       return;
     }
-    // @react-pdf-viewer renders a toolbar with an "Open" button as its
-    // visible sentinel once the worker is ready. We just check that the
-    // viewer container mounted without asserting on individual page DOMs.
-    await expect(page.locator(".rpv-core__viewer")).toBeVisible({
-      timeout: 15_000,
+    // The resume viewer is a browser-native iframe pointed at the Supabase
+    // signed URL, so we just assert it mounts.
+    await expect(page.locator("iframe[title='Candidate resume']")).toBeVisible({
+      timeout: 5_000,
     });
   });
 });

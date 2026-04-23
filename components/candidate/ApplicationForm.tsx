@@ -35,7 +35,13 @@ type UploadStatus =
       resumeText: string | null;
     };
 
-type FieldKey = "name" | "email" | "phone";
+type FieldKey =
+  | "name"
+  | "email"
+  | "phone"
+  | "yearsOfExperience"
+  | "linkedinUrl"
+  | "githubUrl";
 type AutofillStatus =
   | { kind: "idle" }
   | { kind: "running" }
@@ -51,6 +57,9 @@ export function ApplicationForm({ jobId, jobTitle }: ApplicationFormProps) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
+  const [yearsOfExperience, setYearsOfExperience] = useState("");
+  const [linkedinUrl, setLinkedinUrl] = useState("");
+  const [githubUrl, setGithubUrl] = useState("");
 
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -133,6 +142,9 @@ export function ApplicationForm({ jobId, jobTitle }: ApplicationFormProps) {
         name: string;
         email: string | null;
         phone: string | null;
+        yearsOfExperience: number | null;
+        linkedinUrl: string | null;
+        githubUrl: string | null;
       };
       const filled: FieldKey[] = [];
       if (!name && body.name) {
@@ -147,6 +159,18 @@ export function ApplicationForm({ jobId, jobTitle }: ApplicationFormProps) {
         setPhone(body.phone);
         filled.push("phone");
       }
+      if (!yearsOfExperience && body.yearsOfExperience !== null) {
+        setYearsOfExperience(String(body.yearsOfExperience));
+        filled.push("yearsOfExperience");
+      }
+      if (!linkedinUrl && body.linkedinUrl) {
+        setLinkedinUrl(body.linkedinUrl);
+        filled.push("linkedinUrl");
+      }
+      if (!githubUrl && body.githubUrl) {
+        setGithubUrl(body.githubUrl);
+        filled.push("githubUrl");
+      }
       setAutofill({ kind: "done", filled });
     } catch {
       setAutofill({ kind: "idle" });
@@ -159,6 +183,9 @@ export function ApplicationForm({ jobId, jobTitle }: ApplicationFormProps) {
       if (key === "name") setName("");
       if (key === "email") setEmail("");
       if (key === "phone") setPhone("");
+      if (key === "yearsOfExperience") setYearsOfExperience("");
+      if (key === "linkedinUrl") setLinkedinUrl("");
+      if (key === "githubUrl") setGithubUrl("");
     }
     setAutofill({ kind: "undone" });
   }
@@ -201,9 +228,9 @@ export function ApplicationForm({ jobId, jobTitle }: ApplicationFormProps) {
             name,
             email,
             phone: phone || undefined,
-            yearsOfExperience: formData.get("yearsOfExperience") ?? 0,
-            linkedinUrl: (formData.get("linkedinUrl") as string) || undefined,
-            githubUrl: (formData.get("githubUrl") as string) || undefined,
+            yearsOfExperience: yearsOfExperience || 0,
+            linkedinUrl: linkedinUrl || undefined,
+            githubUrl: githubUrl || undefined,
             coverLetter: (formData.get("coverLetter") as string) || undefined,
             uploadId: upload.uploadId,
             storagePath: upload.storagePath,
@@ -367,6 +394,8 @@ export function ApplicationForm({ jobId, jobTitle }: ApplicationFormProps) {
             required
             disabled={isSubmitting}
             placeholder="3"
+            value={yearsOfExperience}
+            onChange={(e) => setYearsOfExperience(e.target.value)}
           />
         </div>
       </FormSection>
@@ -383,6 +412,8 @@ export function ApplicationForm({ jobId, jobTitle }: ApplicationFormProps) {
             type="url"
             disabled={isSubmitting}
             placeholder="https://linkedin.com/in/yourprofile"
+            value={linkedinUrl}
+            onChange={(e) => setLinkedinUrl(e.target.value)}
           />
         </div>
 
@@ -394,6 +425,8 @@ export function ApplicationForm({ jobId, jobTitle }: ApplicationFormProps) {
             type="text"
             disabled={isSubmitting}
             placeholder="your-github-handle"
+            value={githubUrl}
+            onChange={(e) => setGithubUrl(e.target.value)}
           />
         </div>
       </FormSection>

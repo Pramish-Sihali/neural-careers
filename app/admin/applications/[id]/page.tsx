@@ -57,6 +57,15 @@ export default async function AdminApplicationDetailPage({
   const resumeSignedUrl = await getResumeSignedUrl(app.resumeUrl);
   const latestOffer = await findLatestOfferForApplication(app.id);
 
+  // Has the admin already offered slots on this application? Shown as a
+  // subtext under the "Offer Interview Slots" button.
+  const { count: offeredSlotCount } = await supabase
+    .from("interview_slots")
+    .select("id", { count: "exact", head: true })
+    .eq("applicationId", app.id)
+    .in("status", ["HELD", "CONFIRMED"]);
+  const hasOfferedSlots = (offeredSlotCount ?? 0) > 0;
+
   const screening = (app.screeningSummary ?? null) as ScreeningSummary | null;
   const enrichment: EnrichmentData | null = app.enrichment
     ? {
@@ -126,12 +135,13 @@ export default async function AdminApplicationDetailPage({
         />
       </div>
 
-      {/* Action bar — ScreenActions already renders its own "Actions" header */}
+      {/* Action bar — ScreenActions hides itself when there are no actions to show */}
       <div className="mb-6">
         <ScreenActions
           applicationId={app.id}
           candidateName={app.candidateName}
           currentStatus={app.status}
+          hasOfferedSlots={hasOfferedSlots}
         />
       </div>
 
