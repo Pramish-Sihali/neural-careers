@@ -56,20 +56,41 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const body = JSON.parse(rawBody) as {
-    event_type?: string;
-    meetingId?: string;
-  };
+  // Parse defensively — Fireflies has shipped at least two payload shapes across
+  // versions. Accept snake_case or camelCase, and top level or nested under data/payload.
+  const parsed = JSON.parse(rawBody) as Record<string, unknown>;
+  const nested =
+    ((parsed.data as Record<string, unknown> | undefined) ??
+      (parsed.payload as Record<string, unknown> | undefined) ??
+      {}) as Record<string, unknown>;
 
-  if (body.event_type !== "Transcription completed") {
+  const eventType =
+    (parsed.event_type as string | undefined) ??
+    (parsed.eventType as string | undefined) ??
+    (nested.event_type as string | undefined) ??
+    (nested.eventType as string | undefined);
+
+  const meetingId =
+    (parsed.meetingId as string | undefined) ??
+    (parsed.meeting_id as string | undefined) ??
+    (nested.meetingId as string | undefined) ??
+    (nested.meeting_id as string | undefined);
+
+  // One-shot visibility: log the raw body on every delivery so a future Fireflies
+  // schema change is immediately diagnosable. Truncated to keep logs cheap.
+  console.log(
+    "[fireflies webhook] delivery",
+    JSON.stringify({ eventType, meetingId, rawBody: rawBody.slice(0, 400) })
+  );
+
+  if (eventType !== "Transcription completed") {
     return NextResponse.json({ received: true });
   }
 
-  if (!body.meetingId) {
+  if (!meetingId) {
+    console.warn("[fireflies webhook] missing meetingId", rawBody.slice(0, 400));
     return NextResponse.json({ received: true });
   }
-
-  const meetingId = body.meetingId;
 
   // Fast path: direct meetingId match
   const { data: fastMatch } = await supabase
