@@ -112,7 +112,7 @@ export function GenerateOfferButton({ applicationId, candidateName, jobTitle }: 
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+        className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
       >
         Generate offer letter
       </button>
@@ -233,7 +233,7 @@ export function GenerateOfferButton({ applicationId, candidateName, jobTitle }: 
                 type="button"
                 onClick={handleSubmit}
                 disabled={submitting}
-                className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
               >
                 {submitting ? "Generating..." : "Generate letter"}
               </button>
@@ -246,7 +246,7 @@ export function GenerateOfferButton({ applicationId, candidateName, jobTitle }: 
 }
 
 const inputClass =
-  "w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500";
+  "w-full rounded-md border border-input px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary";
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (

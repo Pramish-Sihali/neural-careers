@@ -217,8 +217,8 @@ export function SlotPickerModal({ applicationId, candidateName, onClose, onOffer
                       onClick={() => setSelectedDate(dateKey)}
                       className={`rounded-full px-3 py-1 text-xs font-medium border transition-colors ${
                         isActive
-                          ? "bg-blue-600 text-white border-blue-600"
-                          : "bg-white text-gray-700 border-gray-300 hover:border-blue-400 hover:text-blue-600"
+                          ? "bg-primary text-primary-foreground border-primary"
+                          : "bg-white text-gray-700 border-gray-300 hover:border-primary hover:text-primary"
                       }`}
                     >
                       {formatDatePill(firstSlot.start)}

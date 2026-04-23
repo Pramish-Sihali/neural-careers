@@ -57,11 +57,11 @@ function buildColumns(screeningIds: Set<string>, onScreenOne: (app: NewApplicati
             <button
               onClick={() => onScreenOne(app)}
               disabled={isScanning || screeningIds.size > 0}
-              className="min-w-[72px] rounded-md bg-blue-600 px-2.5 py-1 text-xs text-white hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-1.5"
+              className="min-w-[72px] rounded-md bg-primary px-2.5 py-1 text-xs text-primary-foreground hover:bg-primary/90 disabled:opacity-50 flex items-center justify-center gap-1.5"
             >
               {isScanning ? (
                 <>
-                  <span className="h-3 w-3 rounded-full border-2 border-white border-t-transparent animate-spin" />
+                  <span className="h-3 w-3 rounded-full border-2 border-primary-foreground border-t-transparent animate-spin" />
                   Scanning…
                 </>
               ) : (
@@ -70,7 +70,7 @@ function buildColumns(screeningIds: Set<string>, onScreenOne: (app: NewApplicati
             </button>
             <a
               href={`/admin/applications/${app.id}`}
-              className="text-xs text-blue-600 hover:underline"
+              className="text-xs text-primary hover:underline"
             >
               View →
             </a>
@@ -120,7 +120,7 @@ export function NewApplicationsTable({ data, screeningIds, onScreenOne }: Props)
               key={row.id}
               className={`border-b transition-colors ${
                 screeningIds.has(row.original.id)
-                  ? "bg-blue-50/50"
+                  ? "bg-primary/5"
                   : "hover:bg-muted/30"
               }`}
             >

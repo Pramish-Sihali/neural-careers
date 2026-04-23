@@ -52,7 +52,7 @@ export function ScreenActions({ applicationId, candidateName, currentStatus }: P
             <button
               onClick={() => callAction(`/api/admin/applications/${applicationId}/screen`, "POST")}
               disabled={loading !== null}
-              className="rounded-md bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
+              className="rounded-md bg-primary px-3 py-1.5 text-sm text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
             >
               {loading === `/api/admin/applications/${applicationId}/screen` ? "Screening…" : "Run AI Screen"}
             </button>

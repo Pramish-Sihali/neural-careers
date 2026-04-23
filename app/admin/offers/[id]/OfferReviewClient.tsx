@@ -227,7 +227,7 @@ export function OfferReviewClient({
                   setEditing(true);
                 }}
                 disabled={regenerating}
-                className="text-xs font-medium text-blue-600 hover:underline disabled:opacity-50 disabled:no-underline"
+                className="text-xs font-medium text-primary hover:underline disabled:opacity-50 disabled:no-underline"
               >
                 Edit draft
               </button>
@@ -246,7 +246,7 @@ export function OfferReviewClient({
                 type="button"
                 onClick={saveEdit}
                 disabled={saving}
-                className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
               >
                 {saving ? "Saving..." : "Save draft"}
               </button>
@@ -315,7 +315,7 @@ export function OfferReviewClient({
             type="button"
             onClick={sendOffer}
             disabled={sending}
-            className="rounded-md bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+            className="rounded-md bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
           >
             {sending ? "Sending..." : `Send for signature → ${candidateEmail}`}
           </button>
