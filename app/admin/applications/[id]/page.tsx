@@ -2,6 +2,8 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, FileText, ExternalLink } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+
+export const dynamic = "force-dynamic";
 import { createClient } from "@supabase/supabase-js";
 import { parseApplicationRow, parseSlackOnboardingRow } from "@/lib/types/database";
 import { StatusBadge } from "@/components/admin/StatusBadge";
@@ -216,7 +218,7 @@ export default async function AdminApplicationDetailPage({
 
             {app.interview.transcriptText && (() => {
               const raw = app.interview!.transcriptRaw as {
-                summary?: { action_items?: string[]; keywords?: string[] };
+                summary?: { keywords?: string[] };
               } | null;
 
               return (
@@ -230,22 +232,6 @@ export default async function AdminApplicationDetailPage({
                       <p className="text-sm text-muted-foreground">
                         {app.interview!.transcriptSummary}
                       </p>
-                    </div>
-                  )}
-
-                  {/* Action items */}
-                  {(raw?.summary?.action_items ?? []).length > 0 && (
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">
-                        Action Items
-                      </p>
-                      <ul className="space-y-1">
-                        {(raw!.summary!.action_items!).map((item, i) => (
-                          <li key={i} className="text-sm flex gap-2">
-                            <span className="text-muted-foreground">•</span> {item}
-                          </li>
-                        ))}
-                      </ul>
                     </div>
                   )}
 
@@ -280,17 +266,6 @@ export default async function AdminApplicationDetailPage({
                     ) : (
                       <p className="text-sm text-muted-foreground">No transcript content.</p>
                     )}
-                  </div>
-
-                  {/* AI Scorecard placeholder */}
-                  <div className="rounded-lg border border-dashed p-4 opacity-50 select-none">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="text-xs">🔒</span>
-                      <p className="text-xs font-semibold uppercase tracking-wide">
-                        AI Scorecard
-                      </p>
-                    </div>
-                    <p className="text-xs text-muted-foreground">Coming soon — Gemini-powered interview analysis.</p>
                   </div>
                 </div>
               );
