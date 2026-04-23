@@ -9,6 +9,7 @@ import type {
   ActivityRow,
   ActivityStatus,
 } from "@/components/admin/InterviewActivityTable";
+import { CreateJobButton } from "@/components/admin/CreateJobButton";
 
 interface OfferLite {
   applicationId: string;
@@ -227,11 +228,14 @@ export default async function AdminApplicationsPage({ searchParams }: Props) {
         </div>
       )}
 
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">Welcome back</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          {totalApps} total application{totalApps !== 1 ? "s" : ""} in the pipeline.
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Welcome back</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {totalApps} total application{totalApps !== 1 ? "s" : ""} in the pipeline.
+          </p>
+        </div>
+        <CreateJobButton />
       </div>
 
       <AdminPipelineClient
