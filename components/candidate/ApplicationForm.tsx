@@ -400,7 +400,7 @@ export function ApplicationForm({ jobId, jobTitle }: ApplicationFormProps) {
 
       <FormSection title="Cover letter" fullWidth>
         <div className="space-y-1.5">
-          <Label htmlFor="coverLetter">Tell us why you're a great fit</Label>
+          <Label htmlFor="coverLetter">Tell us why you&apos;re a great fit</Label>
           <Textarea
             id="coverLetter"
             name="coverLetter"
