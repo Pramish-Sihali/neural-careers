@@ -10,7 +10,7 @@ import { StatusBadge } from "@/components/admin/StatusBadge";
 import { ScreenActions } from "@/components/admin/ScreenActions";
 import { SimulateInterviewButton } from "@/components/admin/SimulateInterviewButton";
 import { SendBotButton } from "@/components/admin/SendBotButton";
-import { GenerateOfferButton } from "@/components/admin/GenerateOfferButton";
+import { SendOfferAccordion } from "@/components/admin/SendOfferAccordion";
 import { SlackStatus } from "@/components/admin/SlackStatus";
 import {
   ApplicationTabs,
@@ -176,7 +176,7 @@ export default async function AdminApplicationDetailPage({
               <p className="text-sm text-muted-foreground">
                 Interview complete. Ready to generate the offer letter.
               </p>
-              <GenerateOfferButton
+              <SendOfferAccordion
                 applicationId={app.id}
                 candidateName={app.candidateName}
                 jobTitle={app.job?.title ?? ""}
