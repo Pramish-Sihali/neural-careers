@@ -258,20 +258,7 @@ test.describe("Admin panel", () => {
     });
   });
 
-  test("detail page shows resume text section", async ({ page }) => {
-    await page.goto("/admin/applications");
-    // Click first candidate row
-    const firstLink = page
-      .locator('a[href*="/admin/applications/"]')
-      .first();
-    await expect(firstLink).toBeVisible({ timeout: 10_000 });
-    await firstLink.click();
-    await expect(page.locator("h2:has-text('Resume Text')")).toBeVisible({
-      timeout: 10_000,
-    });
-  });
-
-  test("detail page: PDF viewer iframe present when resume uploaded", async ({
+  test("detail page shows the four tabs (screening / enrichment / notes / resume)", async ({
     page,
   }) => {
     await page.goto("/admin/applications");
@@ -281,16 +268,38 @@ test.describe("Admin panel", () => {
     await expect(firstLink).toBeVisible({ timeout: 10_000 });
     await firstLink.click();
 
-    // Resume File section must be visible
-    await expect(page.locator('h2:has-text("Resume File")')).toBeVisible({ timeout: 5_000 });
+    // The parsed-text section has been removed per spec §2.4 — the tab row
+    // is the new anchor for the detail page.
+    await expect(page.getByRole("tab", { name: "AI Screening" })).toBeVisible({
+      timeout: 10_000,
+    });
+    await expect(page.getByRole("tab", { name: "AI Enrichment" })).toBeVisible();
+    await expect(page.getByRole("tab", { name: "Interviewer Notes" })).toBeVisible();
+    await expect(page.getByRole("tab", { name: "Resume" })).toBeVisible();
+  });
 
-    // If the upload succeeded (resumeUrl != "pending"), an iframe should be present
-    const uploadPending = await page.locator("text=Upload pending").isVisible();
-    if (uploadPending) {
-      console.log("Resume upload was pending — iframe not expected");
-    } else {
-      await expect(page.locator("iframe[title='Candidate resume']")).toBeVisible({ timeout: 5_000 });
-      console.log("PDF viewer iframe present ✓");
+  test("detail page: Resume tab renders a viewer (or pending message)", async ({
+    page,
+  }) => {
+    await page.goto("/admin/applications");
+    const firstLink = page
+      .locator('a[href*="/admin/applications/"]')
+      .first();
+    await expect(firstLink).toBeVisible({ timeout: 10_000 });
+    await firstLink.click();
+
+    await page.getByRole("tab", { name: "Resume" }).click();
+
+    const pending = await page.getByText("Upload pending").isVisible().catch(() => false);
+    if (pending) {
+      console.log("Resume upload was pending — viewer not expected");
+      return;
     }
+    // @react-pdf-viewer renders a toolbar with an "Open" button as its
+    // visible sentinel once the worker is ready. We just check that the
+    // viewer container mounted without asserting on individual page DOMs.
+    await expect(page.locator(".rpv-core__viewer")).toBeVisible({
+      timeout: 15_000,
+    });
   });
 });

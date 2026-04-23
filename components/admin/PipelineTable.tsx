@@ -42,13 +42,30 @@ const columns = [
   col.accessor("candidateName", {
     header: "Candidate",
     cell: (info) => (
-      <div>
-        <p className="font-medium text-sm">{info.getValue()}</p>
-        <p className="text-xs text-muted-foreground">{info.row.original.candidateEmail}</p>
+      <div className="min-w-0">
+        <p
+          className="truncate font-medium text-sm"
+          title={info.getValue()}
+        >
+          {info.getValue()}
+        </p>
+        <p
+          className="truncate text-xs text-muted-foreground"
+          title={info.row.original.candidateEmail}
+        >
+          {info.row.original.candidateEmail}
+        </p>
       </div>
     ),
   }),
-  col.accessor("jobTitle", { header: "Role" }),
+  col.accessor("jobTitle", {
+    header: "Role",
+    cell: (info) => (
+      <span className="block truncate" title={info.getValue()}>
+        {info.getValue()}
+      </span>
+    ),
+  }),
   col.accessor("fitScore", {
     header: "Fit Score",
     cell: (info) => {
@@ -78,7 +95,7 @@ const columns = [
     cell: (info) => (
       <a
         href={`/admin/applications/${info.row.original.id}`}
-        className="text-xs text-blue-600 hover:underline"
+        className="text-xs font-medium text-primary hover:underline"
       >
         View →
       </a>
@@ -140,15 +157,23 @@ export function PipelineTable({ data }: { data: PipelineRow[] }) {
         />
       </div>
 
-      <div className="rounded-md border">
-        <table className="w-full text-sm">
+      <div className="rounded-md border overflow-hidden">
+        <table className="w-full table-fixed text-sm">
+          <colgroup>
+            <col className="w-[26%]" />
+            <col className="w-[22%]" />
+            <col className="w-[12%]" />
+            <col className="w-[18%]" />
+            <col className="w-[12%]" />
+            <col className="w-[10%]" />
+          </colgroup>
           <thead>
             {table.getHeaderGroups().map((hg) => (
               <tr key={hg.id} className="border-b bg-muted/50">
                 {hg.headers.map((header) => (
                   <th
                     key={header.id}
-                    className="px-4 py-3 text-left font-medium text-muted-foreground cursor-pointer select-none"
+                    className="px-4 py-3 text-left font-medium text-muted-foreground cursor-pointer select-none truncate"
                     onClick={header.column.getToggleSortingHandler()}
                   >
                     {flexRender(header.column.columnDef.header, header.getContext())}
@@ -162,7 +187,10 @@ export function PipelineTable({ data }: { data: PipelineRow[] }) {
             {table.getRowModel().rows.map((row) => (
               <tr key={row.id} className="border-b hover:bg-muted/30 transition-colors">
                 {row.getVisibleCells().map((cell) => (
-                  <td key={cell.id} className="px-4 py-3">
+                  <td
+                    key={cell.id}
+                    className="px-4 py-3 align-middle truncate"
+                  >
                     {flexRender(cell.column.columnDef.cell, cell.getContext())}
                   </td>
                 ))}

@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, FileText, ExternalLink } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
@@ -12,6 +12,11 @@ import { SimulateInterviewButton } from "@/components/admin/SimulateInterviewBut
 import { SendBotButton } from "@/components/admin/SendBotButton";
 import { GenerateOfferButton } from "@/components/admin/GenerateOfferButton";
 import { SlackStatus } from "@/components/admin/SlackStatus";
+import {
+  ApplicationTabs,
+  type ScreeningSummary,
+  type EnrichmentData,
+} from "@/components/admin/ApplicationTabs";
 import { findLatestOfferForApplication } from "@/lib/repositories/offerRepo";
 
 async function getApplication(id: string) {
@@ -27,13 +32,13 @@ async function getApplication(id: string) {
 async function getResumeSignedUrl(storagePath: string): Promise<string | null> {
   if (!storagePath || storagePath === "pending") return null;
   try {
-    const supabase = createClient(
+    const sb = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     );
-    const { data, error } = await supabase.storage
+    const { data, error } = await sb.storage
       .from("resumes")
-      .createSignedUrl(storagePath, 60 * 30); // 30 min — path is already relative to bucket root
+      .createSignedUrl(storagePath, 60 * 30);
     if (error || !data) return null;
     return data.signedUrl;
   } catch {
@@ -54,20 +59,27 @@ export default async function AdminApplicationDetailPage({
   const latestOffer = await findLatestOfferForApplication(app.id);
 
   const { data: slackOnboardingRow } = await supabase
-    .from("slack_onboardings").select("*").eq("applicationId", id).maybeSingle();
+    .from("slack_onboardings")
+    .select("*")
+    .eq("applicationId", id)
+    .maybeSingle();
   const slackOnboarding = slackOnboardingRow
     ? parseSlackOnboardingRow(slackOnboardingRow as Record<string, unknown>)
     : null;
 
-  const screening = app.screeningSummary as {
-    strengths?: string[];
-    gaps?: string[];
-    rationale?: string;
-    recommendation?: string;
-  } | null;
+  const screening = (app.screeningSummary ?? null) as ScreeningSummary | null;
+  const enrichment: EnrichmentData | null = app.enrichment
+    ? {
+        candidateBrief: app.enrichment.candidateBrief,
+        githubDigest: app.enrichment.githubDigest,
+        discrepancies: app.enrichment.discrepancies,
+        linkedinSummary: app.enrichment.linkedinSummary,
+        twitterSummary: app.enrichment.twitterSummary,
+      }
+    : null;
 
   return (
-    <main className="mx-auto max-w-4xl px-4 py-10 sm:px-6 lg:px-8">
+    <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-10 sm:px-6 lg:px-8">
       <Link
         href="/admin/applications"
         className="mb-6 inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
@@ -75,253 +87,185 @@ export default async function AdminApplicationDetailPage({
         <ArrowLeft className="h-4 w-4" /> All candidates
       </Link>
 
-      <div className="flex items-start justify-between mb-8">
-        <div>
-          <h1 className="text-2xl font-bold">{app.candidateName}</h1>
-          <p className="text-sm text-muted-foreground mt-1">{app.candidateEmail}</p>
-          {app.phone && (
-            <p className="text-sm text-muted-foreground">{app.phone}</p>
-          )}
-          <p className="text-sm text-muted-foreground">{app.job?.title}</p>
-          {app.yearsOfExperience != null && (
-            <p className="text-sm text-muted-foreground">{app.yearsOfExperience} yrs experience</p>
-          )}
+      {/* Header */}
+      <header className="mb-6 flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <h1 className="text-2xl font-bold tracking-tight truncate">
+            {app.candidateName}
+          </h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {app.job?.title ?? "—"}
+            {app.yearsOfExperience != null && ` · ${app.yearsOfExperience} yrs experience`}
+          </p>
+          <p className="text-sm text-muted-foreground">
+            {app.candidateEmail}
+            {app.phone && <> · {app.phone}</>}
+          </p>
         </div>
-        <div className="flex flex-col items-end gap-3">
+        <div className="flex flex-col items-end gap-2 shrink-0">
           <StatusBadge status={app.status} />
           {app.fitScore !== null && (
-            <span className="text-lg font-bold">{app.fitScore}/100</span>
+            <span className="text-lg font-bold tracking-tight">
+              {app.fitScore}<span className="text-sm text-muted-foreground">/100</span>
+            </span>
           )}
         </div>
-      </div>
+      </header>
 
-      <div className="space-y-6">
-        {/* AI Screening Actions */}
-        <ScreenActions applicationId={app.id} candidateName={app.candidateName} currentStatus={app.status} />
-
-        {/* Offer stage */}
-        {(app.status === "POST_INTERVIEW" ||
-          app.status === "OFFER_SENT" ||
-          app.status === "OFFER_SIGNED" ||
-          app.status === "ONBOARDED") && (
-          <section className="rounded-lg border p-6 space-y-3">
-            <h2 className="font-semibold">Offer</h2>
-            {latestOffer ? (
-              <div className="flex items-center justify-between">
-                <div className="text-sm">
-                  <p className="font-medium text-foreground">
-                    {latestOffer.jobTitle} — ${latestOffer.baseSalary.toLocaleString("en-US")}
-                  </p>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    Status: <span className="font-medium">{latestOffer.status}</span>
-                    {latestOffer.sentAt && ` · Sent ${latestOffer.sentAt.toLocaleDateString()}`}
-                    {latestOffer.signedAt && ` · Signed ${latestOffer.signedAt.toLocaleDateString()}`}
-                  </p>
-                </div>
-                <Link
-                  href={`/admin/offers/${latestOffer.id}`}
-                  className="rounded-md border px-3 py-1.5 text-xs font-medium hover:bg-muted"
-                >
-                  Open offer →
-                </Link>
-              </div>
-            ) : (
-              <>
-                <p className="text-sm text-muted-foreground">
-                  Interview complete. Ready to generate the offer letter.
-                </p>
-                <GenerateOfferButton
-                  applicationId={app.id}
-                  candidateName={app.candidateName}
-                  jobTitle={app.job?.title ?? ""}
-                />
-              </>
-            )}
-          </section>
-        )}
-
-        {/* Cover letter */}
-        {app.coverLetter && (
-          <section className="rounded-lg border p-6">
-            <h2 className="font-semibold mb-3">Cover Letter</h2>
-            <p className="text-sm whitespace-pre-wrap text-muted-foreground">{app.coverLetter}</p>
-          </section>
-        )}
-
-        {/* Screening Result */}
-        {screening && (
-          <section className="rounded-lg border p-6 space-y-4">
-            <h2 className="font-semibold">AI Screening Result</h2>
-            <p className="text-sm text-muted-foreground">{screening.rationale}</p>
-            {screening.strengths && screening.strengths.length > 0 && (
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wide text-green-600 mb-2">Strengths</p>
-                <ul className="space-y-1">
-                  {screening.strengths.map((s, i) => (
-                    <li key={i} className="text-sm flex gap-2">
-                      <span className="text-green-500">✓</span> {s}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-            {screening.gaps && screening.gaps.length > 0 && (
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wide text-red-500 mb-2">Gaps</p>
-                <ul className="space-y-1">
-                  {screening.gaps.map((g, i) => (
-                    <li key={i} className="text-sm flex gap-2">
-                      <span className="text-red-400">✗</span> {g}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-          </section>
-        )}
-
-        {/* Enrichment */}
-        {app.enrichment && (
-          <section className="rounded-lg border p-6 space-y-3">
-            <h2 className="font-semibold">Candidate Research</h2>
-            <p className="text-sm text-muted-foreground">{app.enrichment.candidateBrief}</p>
-            {!!app.enrichment.githubDigest && (
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wide mb-1">GitHub</p>
-                <pre className="text-xs bg-muted rounded p-3 overflow-auto">
-                  {JSON.stringify(app.enrichment.githubDigest, null, 2)}
-                </pre>
-              </div>
-            )}
-          </section>
-        )}
-
-        {/* Interview Transcript */}
-        {app.interview && (
-          <section className="rounded-lg border p-6 space-y-4">
-            <h2 className="font-semibold">Interview</h2>
-
-            {app.interview.status !== "COMPLETED" && (
-              <SendBotButton
-                applicationId={app.id}
-                interviewStatus={app.interview.status}
-              />
-            )}
-
-            {app.interview.status === "SCHEDULED" && (
-              <SimulateInterviewButton applicationId={app.id} />
-            )}
-
-            {app.interview.status === "COMPLETED" && !app.interview.transcriptText && (
-              <p className="text-sm text-muted-foreground">Transcript unavailable.</p>
-            )}
-
-            {app.interview.transcriptText && (() => {
-              const raw = app.interview!.transcriptRaw as {
-                summary?: { keywords?: string[] };
-              } | null;
-
-              return (
-                <div className="space-y-4">
-                  {/* Summary */}
-                  {app.interview!.transcriptSummary && (
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">
-                        Summary
-                      </p>
-                      <p className="text-sm text-muted-foreground">
-                        {app.interview!.transcriptSummary}
-                      </p>
-                    </div>
-                  )}
-
-                  {/* Keywords */}
-                  {(raw?.summary?.keywords ?? []).length > 0 && (
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">
-                        Keywords
-                      </p>
-                      <div className="flex flex-wrap gap-1.5">
-                        {(raw!.summary!.keywords!).map((kw, i) => (
-                          <span
-                            key={i}
-                            className="rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium"
-                          >
-                            {kw}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Full transcript */}
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">
-                      Transcript
-                    </p>
-                    {app.interview!.transcriptText ? (
-                      <pre className="text-xs whitespace-pre-wrap text-muted-foreground font-mono bg-muted rounded p-4 max-h-96 overflow-y-auto">
-                        {app.interview!.transcriptText}
-                      </pre>
-                    ) : (
-                      <p className="text-sm text-muted-foreground">No transcript content.</p>
-                    )}
-                  </div>
-                </div>
-              );
-            })()}
-          </section>
-        )}
-
-        {/* Resume file */}
-        <section className="rounded-lg border p-6 space-y-3">
-          <div className="flex items-center justify-between">
-            <h2 className="font-semibold flex items-center gap-2">
-              <FileText className="h-4 w-4" /> Resume File
-            </h2>
-            {resumeSignedUrl ? (
-              <a
-                href={resumeSignedUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline"
-              >
-                Open PDF <ExternalLink className="h-3 w-3" />
-              </a>
-            ) : (
-              <span className="text-xs text-muted-foreground">
-                {app.resumeUrl === "pending" ? "Upload pending" : "File unavailable"}
-              </span>
-            )}
-          </div>
-          {resumeSignedUrl && (
-            <iframe
-              src={resumeSignedUrl}
-              className="w-full rounded border bg-muted"
-              style={{ height: "600px" }}
-              title="Candidate resume"
-            />
-          )}
+      {/* Cover letter (unchanged position above tabs) */}
+      {app.coverLetter && (
+        <section className="mb-6 rounded-lg border bg-card p-5">
+          <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Cover letter
+          </h2>
+          <p className="whitespace-pre-wrap text-sm text-foreground">
+            {app.coverLetter}
+          </p>
         </section>
+      )}
 
-        {/* Resume text */}
-        <section className="rounded-lg border p-6">
-          <h2 className="font-semibold mb-3">Resume Text (parsed)</h2>
-          <pre className="text-xs whitespace-pre-wrap text-muted-foreground max-h-96 overflow-y-auto">
-            {app.resumeText}
-          </pre>
-        </section>
-
-        {/* Slack onboarding */}
-        <SlackStatus
+      {/* Tabbed content */}
+      <div className="mb-6">
+        <ApplicationTabs
           applicationId={app.id}
-          inviteEmailSentAt={slackOnboarding?.inviteEmailSentAt?.toISOString() ?? null}
-          joinedAt={slackOnboarding?.joinedAt?.toISOString() ?? null}
-          welcomeDmSentAt={slackOnboarding?.welcomeDmSentAt?.toISOString() ?? null}
-          hrNotifiedAt={slackOnboarding?.hrNotifiedAt?.toISOString() ?? null}
-          slackUserId={slackOnboarding?.slackUserId ?? null}
+          candidateName={app.candidateName}
+          screening={screening}
+          enrichment={enrichment}
+          resumeSignedUrl={resumeSignedUrl}
+          resumeStatus={app.resumeUrl}
         />
       </div>
+
+      {/* Action bar — ScreenActions already renders its own "Actions" header */}
+      <div className="mb-6">
+        <ScreenActions
+          applicationId={app.id}
+          candidateName={app.candidateName}
+          currentStatus={app.status}
+        />
+      </div>
+
+      {/* Offer stage */}
+      {(app.status === "POST_INTERVIEW" ||
+        app.status === "OFFER_SENT" ||
+        app.status === "OFFER_SIGNED" ||
+        app.status === "ONBOARDED") && (
+        <section className="mb-6 rounded-lg border bg-card p-5 space-y-3">
+          <h2 className="text-sm font-semibold">Offer</h2>
+          {latestOffer ? (
+            <div className="flex items-center justify-between">
+              <div className="text-sm">
+                <p className="font-medium text-foreground">
+                  {latestOffer.jobTitle} — ${latestOffer.baseSalary.toLocaleString("en-US")}
+                </p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  Status: <span className="font-medium">{latestOffer.status}</span>
+                  {latestOffer.sentAt && ` · Sent ${latestOffer.sentAt.toLocaleDateString()}`}
+                  {latestOffer.signedAt && ` · Signed ${latestOffer.signedAt.toLocaleDateString()}`}
+                </p>
+              </div>
+              <Link
+                href={`/admin/offers/${latestOffer.id}`}
+                className="rounded-md border px-3 py-1.5 text-xs font-medium hover:bg-muted"
+              >
+                Open offer →
+              </Link>
+            </div>
+          ) : (
+            <>
+              <p className="text-sm text-muted-foreground">
+                Interview complete. Ready to generate the offer letter.
+              </p>
+              <GenerateOfferButton
+                applicationId={app.id}
+                candidateName={app.candidateName}
+                jobTitle={app.job?.title ?? ""}
+              />
+            </>
+          )}
+        </section>
+      )}
+
+      {/* Interview transcript (only if an interview exists) */}
+      {app.interview && (
+        <section className="mb-6 rounded-lg border bg-card p-5 space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-semibold">Interview</h2>
+            <div className="flex gap-2">
+              {app.interview.status !== "COMPLETED" && (
+                <SendBotButton
+                  applicationId={app.id}
+                  interviewStatus={app.interview.status}
+                />
+              )}
+              {app.interview.status === "SCHEDULED" && (
+                <SimulateInterviewButton applicationId={app.id} />
+              )}
+            </div>
+          </div>
+
+          {app.interview.transcriptSummary && (
+            <div>
+              <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Summary
+              </p>
+              <p className="text-sm text-foreground">
+                {app.interview.transcriptSummary}
+              </p>
+            </div>
+          )}
+
+          {(() => {
+            const raw = app.interview!.transcriptRaw as {
+              summary?: { keywords?: string[] };
+            } | null;
+            const keywords = raw?.summary?.keywords ?? [];
+            if (keywords.length === 0) return null;
+            return (
+              <div>
+                <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Keywords
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {keywords.map((kw, i) => (
+                    <span
+                      key={i}
+                      className="rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium"
+                    >
+                      {kw}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
+
+          {app.interview.transcriptText && (
+            <details className="group">
+              <summary className="cursor-pointer text-xs font-medium text-primary hover:underline">
+                Get full transcript
+              </summary>
+              <pre className="mt-3 max-h-96 overflow-y-auto whitespace-pre-wrap rounded bg-muted p-4 font-mono text-xs text-foreground">
+                {app.interview.transcriptText}
+              </pre>
+            </details>
+          )}
+
+          {app.interview.status === "COMPLETED" && !app.interview.transcriptText && (
+            <p className="text-sm text-muted-foreground">Transcript unavailable.</p>
+          )}
+        </section>
+      )}
+
+      {/* Slack onboarding (stays for now — moves to offer page in next commit) */}
+      <SlackStatus
+        applicationId={app.id}
+        inviteEmailSentAt={slackOnboarding?.inviteEmailSentAt?.toISOString() ?? null}
+        joinedAt={slackOnboarding?.joinedAt?.toISOString() ?? null}
+        welcomeDmSentAt={slackOnboarding?.welcomeDmSentAt?.toISOString() ?? null}
+        hrNotifiedAt={slackOnboarding?.hrNotifiedAt?.toISOString() ?? null}
+        slackUserId={slackOnboarding?.slackUserId ?? null}
+      />
     </main>
   );
 }

@@ -31,13 +31,27 @@ function buildColumns(screeningIds: Set<string>, onScreenOne: (app: NewApplicati
     col.accessor("candidateName", {
       header: "Candidate",
       cell: (info) => (
-        <div>
-          <p className="font-medium text-sm">{info.getValue()}</p>
-          <p className="text-xs text-muted-foreground">{info.row.original.candidateEmail}</p>
+        <div className="min-w-0">
+          <p className="truncate font-medium text-sm" title={info.getValue()}>
+            {info.getValue()}
+          </p>
+          <p
+            className="truncate text-xs text-muted-foreground"
+            title={info.row.original.candidateEmail}
+          >
+            {info.row.original.candidateEmail}
+          </p>
         </div>
       ),
     }),
-    col.accessor("jobTitle", { header: "Role" }),
+    col.accessor("jobTitle", {
+      header: "Role",
+      cell: (info) => (
+        <span className="block truncate" title={info.getValue()}>
+          {info.getValue()}
+        </span>
+      ),
+    }),
     col.accessor("createdAt", {
       header: "Applied",
       cell: (info) =>
@@ -96,15 +110,21 @@ export function NewApplicationsTable({ data, screeningIds, onScreenOne }: Props)
   });
 
   return (
-    <div className="rounded-md border">
-      <table className="w-full text-sm">
+    <div className="rounded-md border overflow-hidden">
+      <table className="w-full table-fixed text-sm">
+        <colgroup>
+          <col className="w-[40%]" />
+          <col className="w-[26%]" />
+          <col className="w-[14%]" />
+          <col className="w-[20%]" />
+        </colgroup>
         <thead>
           {table.getHeaderGroups().map((hg) => (
             <tr key={hg.id} className="border-b bg-muted/50">
               {hg.headers.map((header) => (
                 <th
                   key={header.id}
-                  className="px-4 py-3 text-left font-medium text-muted-foreground cursor-pointer select-none"
+                  className="px-4 py-3 text-left font-medium text-muted-foreground cursor-pointer select-none truncate"
                   onClick={header.column.getToggleSortingHandler()}
                 >
                   {flexRender(header.column.columnDef.header, header.getContext())}
@@ -125,7 +145,7 @@ export function NewApplicationsTable({ data, screeningIds, onScreenOne }: Props)
               }`}
             >
               {row.getVisibleCells().map((cell) => (
-                <td key={cell.id} className="px-4 py-3">
+                <td key={cell.id} className="px-4 py-3 align-middle truncate">
                   {flexRender(cell.column.columnDef.cell, cell.getContext())}
                 </td>
               ))}
