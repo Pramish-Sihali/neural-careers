@@ -1,37 +1,85 @@
 export const dynamic = "force-dynamic";
 
 import { supabase } from "@/lib/supabase";
-import { parseApplicationRow, parseInterviewSlotRow } from "@/lib/types/database";
+import { parseApplicationRow } from "@/lib/types/database";
 import { AdminPipelineClient } from "@/components/admin/AdminPipelineClient";
 import type { NewApplicationRow } from "@/components/admin/NewApplicationsTable";
 import type { PipelineRow } from "@/components/admin/PipelineTable";
-import type { ActivitySlot } from "@/components/admin/InterviewActivityFeed";
+import type {
+  ActivityRow,
+  ActivityStatus,
+} from "@/components/admin/InterviewActivityTable";
+
+interface OfferLite {
+  applicationId: string;
+  status: string;
+  sentAt: string | null;
+  signedAt: string | null;
+  createdAt: string;
+}
+
+interface InterviewLite {
+  applicationId: string;
+  status: string;
+  scheduledAt: string | null;
+  completedAt: string | null;
+}
+
+interface SlotLite {
+  applicationId: string;
+  status: string;
+  startTime: string;
+}
 
 async function getData(searchParams: Record<string, string>) {
-  const [appsResult, slotsResult, calendarCreds] = await Promise.all([
-    supabase
-      .from("applications")
-      .select("*, job:jobs(*)")
-      .order("createdAt", { ascending: false }),
-    supabase
-      .from("interview_slots")
-      .select("*, application:applications(*, job:jobs(*))")
-      .order("startTime", { ascending: true }),
-    process.env.USE_MOCK_CALENDAR !== "true"
-      ? supabase
-          .from("interviewer_credentials")
-          .select("interviewerEmail")
-          .limit(1)
-          .maybeSingle()
-      : Promise.resolve({ data: null, error: null }),
-  ]);
+  const [appsResult, slotsResult, offersResult, interviewsResult, calendarCreds] =
+    await Promise.all([
+      supabase
+        .from("applications")
+        .select("*, job:jobs(*)")
+        .order("createdAt", { ascending: false }),
+      supabase
+        .from("interview_slots")
+        .select("applicationId, status, startTime")
+        .order("startTime", { ascending: true }),
+      supabase
+        .from("offers")
+        .select("applicationId, status, sentAt, signedAt, createdAt")
+        .order("createdAt", { ascending: false }),
+      supabase
+        .from("interviews")
+        .select("applicationId, status, scheduledAt, completedAt"),
+      process.env.USE_MOCK_CALENDAR !== "true"
+        ? supabase
+            .from("interviewer_credentials")
+            .select("interviewerEmail")
+            .limit(1)
+            .maybeSingle()
+        : Promise.resolve({ data: null, error: null }),
+    ]);
 
   const applications = (appsResult.data ?? []).map((row) =>
     parseApplicationRow(row as Record<string, unknown>)
   );
-  const slots = (slotsResult.data ?? []).map((row) =>
-    parseInterviewSlotRow(row as Record<string, unknown>)
-  );
+  const slots = (slotsResult.data ?? []) as SlotLite[];
+  const offers = (offersResult.data ?? []) as OfferLite[];
+  const interviews = (interviewsResult.data ?? []) as InterviewLite[];
+
+  // Index by applicationId for cheap lookups. The offer query is already
+  // sorted by createdAt DESC, so first() yields the latest offer per app.
+  const latestOfferByApp = new Map<string, OfferLite>();
+  for (const o of offers) {
+    if (!latestOfferByApp.has(o.applicationId)) latestOfferByApp.set(o.applicationId, o);
+  }
+  const interviewByApp = new Map<string, InterviewLite>();
+  for (const i of interviews) interviewByApp.set(i.applicationId, i);
+
+  const slotsByApp = new Map<string, SlotLite[]>();
+  for (const s of slots) {
+    const list = slotsByApp.get(s.applicationId) ?? [];
+    list.push(s);
+    slotsByApp.set(s.applicationId, list);
+  }
 
   const newApps: NewApplicationRow[] = applications
     .filter((a) => a.status === "APPLIED")
@@ -55,20 +103,87 @@ async function getData(searchParams: Record<string, string>) {
       createdAt: a.createdAt.toISOString(),
     }));
 
-  const activitySlots: ActivitySlot[] = slots.map((s) => ({
-    id: s.id,
-    applicationId: s.applicationId,
-    candidateName: s.application!.candidateName,
-    jobTitle: s.application!.job!.title,
-    startTime: s.startTime.toISOString(),
-    endTime: s.endTime.toISOString(),
-    status: s.status,
-  }));
+  // Activity rows — collapsed status view ordered most-recent-first.
+  const ACTIVITY_STATUSES: ActivityStatus[] = [
+    "Offer signed",
+    "Offer sent",
+    "Awaiting notes",
+    "Scheduled",
+    "Awaiting confirmation",
+    "Onboarded",
+  ];
+
+  const rowsPool: ActivityRow[] = applications
+    .map((a): ActivityRow | null => {
+      const offer = latestOfferByApp.get(a.id);
+      const interview = interviewByApp.get(a.id);
+      const appSlots = slotsByApp.get(a.id) ?? [];
+      const confirmedSlot = appSlots.find((s) => s.status === "CONFIRMED");
+      const heldSlots = appSlots.filter((s) => s.status === "HELD");
+
+      const base = {
+        applicationId: a.id,
+        candidateName: a.candidateName,
+        jobTitle: a.job!.title,
+      };
+
+      if (a.status === "ONBOARDED") {
+        return {
+          ...base,
+          time: offer?.signedAt ?? null,
+          status: "Onboarded",
+        };
+      }
+      if (a.status === "OFFER_SIGNED" || offer?.status === "SIGNED") {
+        return {
+          ...base,
+          time: offer?.signedAt ?? null,
+          status: "Offer signed",
+        };
+      }
+      if (a.status === "OFFER_SENT" || offer?.status === "SENT") {
+        return {
+          ...base,
+          time: offer?.sentAt ?? null,
+          status: "Offer sent",
+        };
+      }
+      if (a.status === "POST_INTERVIEW") {
+        return {
+          ...base,
+          time: interview?.completedAt ?? null,
+          status: "Awaiting notes",
+        };
+      }
+      if (a.status === "INTERVIEWING" || confirmedSlot) {
+        return {
+          ...base,
+          time: confirmedSlot?.startTime ?? null,
+          status: "Scheduled",
+        };
+      }
+      if (a.status === "SHORTLISTED" && heldSlots.length > 0) {
+        return {
+          ...base,
+          time: heldSlots[0].startTime,
+          status: "Awaiting confirmation",
+        };
+      }
+      return null;
+    })
+    .filter((r): r is ActivityRow => r !== null);
+
+  const activityRows = rowsPool.sort((a, b) => {
+    const sa = ACTIVITY_STATUSES.indexOf(a.status);
+    const sb = ACTIVITY_STATUSES.indexOf(b.status);
+    if (sa !== sb) return sa - sb;
+    return (b.time ?? "").localeCompare(a.time ?? "");
+  });
 
   const authStatus = searchParams.calendar_auth as string | undefined;
   const calendarConnected = !!(calendarCreds as { data: unknown }).data;
 
-  return { newApps, pipeline, activitySlots, calendarConnected, authStatus };
+  return { newApps, pipeline, activityRows, calendarConnected, authStatus };
 }
 
 interface Props {
@@ -77,11 +192,10 @@ interface Props {
 
 export default async function AdminApplicationsPage({ searchParams }: Props) {
   const sp = await searchParams;
-  const { newApps, pipeline, activitySlots, calendarConnected, authStatus } =
+  const { newApps, pipeline, activityRows, calendarConnected, authStatus } =
     await getData(sp);
 
   const useMock = process.env.USE_MOCK_CALENDAR === "true";
-
   const totalApps = newApps.length + pipeline.length;
 
   return (
@@ -123,7 +237,7 @@ export default async function AdminApplicationsPage({ searchParams }: Props) {
       <AdminPipelineClient
         initialNewApps={newApps}
         initialPipeline={pipeline}
-        activitySlots={activitySlots}
+        activityRows={activityRows}
       />
     </main>
   );

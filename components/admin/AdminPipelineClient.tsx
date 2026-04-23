@@ -4,7 +4,10 @@ import { useState } from "react";
 import { BatchScanButton } from "./BatchScanButton";
 import { NewApplicationsTable, type NewApplicationRow } from "./NewApplicationsTable";
 import { PipelineTable, type PipelineRow } from "./PipelineTable";
-import { InterviewActivityFeed, type ActivitySlot } from "./InterviewActivityFeed";
+import {
+  InterviewActivityTable,
+  type ActivityRow,
+} from "./InterviewActivityTable";
 import type { ApplicationStatus } from "@/lib/types/database";
 
 interface ScreenResult {
@@ -15,10 +18,10 @@ interface ScreenResult {
 interface Props {
   initialNewApps: NewApplicationRow[];
   initialPipeline: PipelineRow[];
-  activitySlots: ActivitySlot[];
+  activityRows: ActivityRow[];
 }
 
-export function AdminPipelineClient({ initialNewApps, initialPipeline, activitySlots }: Props) {
+export function AdminPipelineClient({ initialNewApps, initialPipeline, activityRows }: Props) {
   const [newApps, setNewApps] = useState(initialNewApps);
   const [pipeline, setPipeline] = useState(initialPipeline);
   const [screeningIds, setScreeningIds] = useState<Set<string>>(new Set());
@@ -103,12 +106,12 @@ export function AdminPipelineClient({ initialNewApps, initialPipeline, activityS
 
       <section className="space-y-4">
         <div>
-          <h2 className="text-xl font-bold tracking-tight">Interview Activity</h2>
+          <h2 className="text-xl font-bold tracking-tight">Interview activity</h2>
           <p className="mt-0.5 text-sm text-muted-foreground">
-            Slot offers sent and candidate responses
+            Live status of every candidate past the screen stage — updates every 30s.
           </p>
         </div>
-        <InterviewActivityFeed slots={activitySlots} />
+        <InterviewActivityTable rows={activityRows} />
       </section>
     </>
   );
