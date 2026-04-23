@@ -241,6 +241,24 @@ export interface OfferSignature {
 function d(s: string): Date { return new Date(s); }
 function dn(s: string | null | undefined): Date | null { return s ? new Date(s) : null; }
 
+/**
+ * PostgREST returns an array for every embedded relation where the child's FK
+ * column has no UNIQUE constraint — including all our *.applicationId columns,
+ * which are effectively 1:1 in practice but 1:N by schema. Callers that want
+ * the first (and expected only) row should funnel through this helper so a
+ * stray array never silently becomes a ghost object with undefined fields.
+ */
+function firstOrNull<T>(
+  raw: unknown,
+  parse: (row: Record<string, unknown>) => T,
+): T | null {
+  if (raw === null || raw === undefined) return null;
+  if (Array.isArray(raw)) {
+    return raw.length > 0 ? parse(raw[0] as Record<string, unknown>) : null;
+  }
+  return parse(raw as Record<string, unknown>);
+}
+
 export function parseJobRow(row: Record<string, unknown>): Job {
   return {
     id: row.id as string,
@@ -281,10 +299,10 @@ export function parseApplicationRow(row: Record<string, unknown>): Application {
     updatedAt: d(row.updatedAt as string),
     ...(row.job ? { job: parseJobRow(row.job as Record<string, unknown>) } : {}),
     ...(row.enrichment !== undefined
-      ? { enrichment: row.enrichment ? parseCandidateEnrichmentRow(row.enrichment as Record<string, unknown>) : null }
+      ? { enrichment: firstOrNull(row.enrichment, parseCandidateEnrichmentRow) }
       : {}),
     ...(row.interview !== undefined
-      ? { interview: row.interview ? parseInterviewRow(row.interview as Record<string, unknown>) : null }
+      ? { interview: firstOrNull(row.interview, parseInterviewRow) }
       : {}),
     ...(row.interviewSlots
       ? { interviewSlots: (row.interviewSlots as Record<string, unknown>[]).map(parseInterviewSlotRow) }
