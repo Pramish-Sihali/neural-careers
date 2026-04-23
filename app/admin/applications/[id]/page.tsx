@@ -5,13 +5,12 @@ import { supabase } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
 import { createClient } from "@supabase/supabase-js";
-import { parseApplicationRow, parseSlackOnboardingRow } from "@/lib/types/database";
+import { parseApplicationRow } from "@/lib/types/database";
 import { StatusBadge } from "@/components/admin/StatusBadge";
 import { ScreenActions } from "@/components/admin/ScreenActions";
 import { SimulateInterviewButton } from "@/components/admin/SimulateInterviewButton";
 import { SendBotButton } from "@/components/admin/SendBotButton";
 import { SendOfferAccordion } from "@/components/admin/SendOfferAccordion";
-import { SlackStatus } from "@/components/admin/SlackStatus";
 import {
   ApplicationTabs,
   type ScreeningSummary,
@@ -57,15 +56,6 @@ export default async function AdminApplicationDetailPage({
 
   const resumeSignedUrl = await getResumeSignedUrl(app.resumeUrl);
   const latestOffer = await findLatestOfferForApplication(app.id);
-
-  const { data: slackOnboardingRow } = await supabase
-    .from("slack_onboardings")
-    .select("*")
-    .eq("applicationId", id)
-    .maybeSingle();
-  const slackOnboarding = slackOnboardingRow
-    ? parseSlackOnboardingRow(slackOnboardingRow as Record<string, unknown>)
-    : null;
 
   const screening = (app.screeningSummary ?? null) as ScreeningSummary | null;
   const enrichment: EnrichmentData | null = app.enrichment
@@ -257,15 +247,6 @@ export default async function AdminApplicationDetailPage({
         </section>
       )}
 
-      {/* Slack onboarding (stays for now — moves to offer page in next commit) */}
-      <SlackStatus
-        applicationId={app.id}
-        inviteEmailSentAt={slackOnboarding?.inviteEmailSentAt?.toISOString() ?? null}
-        joinedAt={slackOnboarding?.joinedAt?.toISOString() ?? null}
-        welcomeDmSentAt={slackOnboarding?.welcomeDmSentAt?.toISOString() ?? null}
-        hrNotifiedAt={slackOnboarding?.hrNotifiedAt?.toISOString() ?? null}
-        slackUserId={slackOnboarding?.slackUserId ?? null}
-      />
     </main>
   );
 }
