@@ -45,7 +45,66 @@ export function OfferReviewClient({
   const [draft, setDraft] = useState(initialLetterHtml);
   const [saving, setSaving] = useState(false);
   const [sending, setSending] = useState(false);
+  const [regenerating, setRegenerating] = useState(false);
   const [message, setMessage] = useState<{ kind: "success" | "error"; text: string } | null>(null);
+
+  async function regenerateLetter() {
+    if (
+      !confirm(
+        "Regenerate the offer letter from scratch? This replaces the current draft content."
+      )
+    )
+      return;
+    setRegenerating(true);
+    setMessage(null);
+    try {
+      const res = await fetch(`/api/admin/offers/${offerId}/regenerate`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${adminSecret}` },
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? `Request failed (${res.status})`);
+      }
+      if (!res.body) throw new Error("No response stream");
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let accumulated = "";
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        accumulated += decoder.decode(value, { stream: true });
+      }
+      accumulated += decoder.decode();
+
+      if (accumulated.includes("[ERROR:")) {
+        throw new Error("Gemini stream failed partway. Try again in a moment.");
+      }
+
+      const cleaned = accumulated
+        .replace(/\n*\[OFFER_ID:[^\]]+\]\s*$/, "")
+        .replace(/^\s*```(?:html)?\s*/i, "")
+        .replace(/\s*```\s*$/i, "")
+        .trim();
+
+      if (cleaned.length < 50) {
+        throw new Error("Regenerated letter is too short. Try again.");
+      }
+
+      setLetterHtml(cleaned);
+      setDraft(cleaned);
+      setMessage({ kind: "success", text: "Letter regenerated" });
+      router.refresh();
+    } catch (err) {
+      setMessage({
+        kind: "error",
+        text: err instanceof Error ? err.message : "Regeneration failed",
+      });
+    } finally {
+      setRegenerating(false);
+    }
+  }
 
   async function saveEdit() {
     setSaving(true);
@@ -152,16 +211,27 @@ export function OfferReviewClient({
         <div className="flex items-center justify-between border-b px-6 py-3">
           <h2 className="text-sm font-semibold">Letter content</h2>
           {canEdit && !editing && (
-            <button
-              type="button"
-              onClick={() => {
-                setDraft(letterHtml);
-                setEditing(true);
-              }}
-              className="text-xs font-medium text-blue-600 hover:underline"
-            >
-              Edit draft
-            </button>
+            <div className="flex items-center gap-4">
+              <button
+                type="button"
+                onClick={regenerateLetter}
+                disabled={regenerating}
+                className="text-xs font-medium text-purple-600 hover:underline disabled:opacity-50 disabled:no-underline"
+              >
+                {regenerating ? "Regenerating..." : "Regenerate letter"}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setDraft(letterHtml);
+                  setEditing(true);
+                }}
+                disabled={regenerating}
+                className="text-xs font-medium text-blue-600 hover:underline disabled:opacity-50 disabled:no-underline"
+              >
+                Edit draft
+              </button>
+            </div>
           )}
         </div>
         {editing ? (

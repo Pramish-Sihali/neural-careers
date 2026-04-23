@@ -111,6 +111,68 @@ export async function generateOfferDraft(
   return { offer, stream: chunks(), finalize };
 }
 
+/**
+ * Re-runs Gemini against the stored offer inputs and streams a fresh letter
+ * over the existing DRAFT row. Used when the original generation failed or
+ * produced an unusable result.
+ */
+export async function regenerateOfferDraft(offerId: string): Promise<{
+  offer: Offer;
+  stream: AsyncIterable<string>;
+  finalize: (accumulated: string) => Promise<void>;
+}> {
+  const existing = await getOfferById(offerId);
+  if (!existing) throw new OfferNotFoundError("Offer not found");
+  if (existing.status !== "DRAFT") {
+    throw new OfferStateError("Offer is no longer editable");
+  }
+
+  const applicationId = existing.applicationId;
+  const app = await getApplicationById(applicationId);
+  if (!app) throw new OfferNotFoundError("Application not found");
+
+  const promptInput: OfferPromptInput = {
+    candidateName: app.candidateName,
+    jobTitle: existing.jobTitle,
+    startDate: existing.startDate,
+    baseSalary: existing.baseSalary,
+    compensationStructure: existing.compensationStructure,
+    equity: existing.equity ?? null,
+    bonus: existing.bonus ?? null,
+    reportingManager: existing.reportingManager,
+    customTerms: existing.customTerms ?? null,
+  };
+
+  const model = getModel();
+  const streamResult = await model.generateContentStream({
+    systemInstruction: OFFER_LETTER_SYSTEM_PROMPT,
+    contents: [{ role: "user", parts: [{ text: buildOfferPrompt(promptInput) }] }],
+    generationConfig: { maxOutputTokens: 2048, temperature: 0.3 },
+  });
+
+  async function* chunks(): AsyncIterable<string> {
+    for await (const chunk of streamResult.stream) {
+      const text = chunk.text();
+      if (text) yield text;
+    }
+  }
+
+  async function finalize(accumulated: string): Promise<void> {
+    const cleaned = stripHtmlFences(accumulated);
+    await updateOfferDraft(offerId, cleaned);
+    await supabase.from("events_log").insert({
+      id: generateId(),
+      applicationId,
+      eventType: "OFFER_REGENERATED",
+      payload: { offerId, length: cleaned.length },
+      idempotencyKey: `offer-regenerated:${offerId}:${Date.now()}`,
+      createdAt: now(),
+    });
+  }
+
+  return { offer: existing, stream: chunks(), finalize };
+}
+
 /** Update draft letter content (admin edit) — only while DRAFT. */
 export async function editDraft(offerId: string, letterHtml: string): Promise<Offer> {
   const existing = await getOfferById(offerId);
