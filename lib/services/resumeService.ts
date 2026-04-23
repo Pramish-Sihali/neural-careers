@@ -112,3 +112,69 @@ export async function uploadResume(
 
   return path;
 }
+
+export function resumeExtension(mimeType: string): "pdf" | "docx" {
+  return mimeType.includes("pdf") ? "pdf" : "docx";
+}
+
+/**
+ * Upload a pre-submission resume to a `resumes/pending/{uploadId}.{ext}` path.
+ * Used by the immediate-upload flow so the candidate's submit is fast and the
+ * file is already in storage. The path is renamed to
+ * `resumes/{applicationId}.{ext}` at submit time via `finalizePendingResume`.
+ */
+export async function uploadPendingResume(
+  buffer: Buffer,
+  uploadId: string,
+  mimeType: string
+): Promise<string> {
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
+
+  const ext = resumeExtension(mimeType);
+  const path = `resumes/pending/${uploadId}.${ext}`;
+
+  const { error } = await supabase.storage
+    .from("resumes")
+    .upload(path, buffer, { contentType: mimeType, upsert: false });
+
+  if (error) throw new Error(`Pending upload failed: ${error.message}`);
+
+  return path;
+}
+
+/**
+ * Move a pending-resume object to its final applicationId-keyed path.
+ * Returns the new path on success. On move failure, returns the original
+ * pending path unchanged — the file is still accessible, and the caller
+ * can log and continue (non-fatal per DEV-07).
+ */
+export async function finalizePendingResume(
+  pendingPath: string,
+  applicationId: string,
+  mimeType: string
+): Promise<string> {
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
+
+  const ext = resumeExtension(mimeType);
+  const finalPath = `resumes/${applicationId}.${ext}`;
+
+  const { error } = await supabase.storage
+    .from("resumes")
+    .move(pendingPath, finalPath);
+
+  if (error) {
+    console.error(
+      `[resumeService] finalize move failed (${pendingPath} -> ${finalPath}):`,
+      error.message
+    );
+    return pendingPath;
+  }
+
+  return finalPath;
+}
